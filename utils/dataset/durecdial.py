@@ -41,7 +41,7 @@ def durecdial_dataset():
         for conv in tqdm(file):
             temp_conv = {
                 "conv_id": int(conv["conv_id"]),
-                "user_id": int(conv["user_id"]),
+                "user_id": conv["user_id"],
                 "dialogs": parser_dialogs(conv["dialog"]),
             }
             temp_data.append(temp_conv)
