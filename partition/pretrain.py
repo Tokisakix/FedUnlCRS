@@ -29,20 +29,23 @@ class PretrainEmbeddingModel(torch.nn.Module):
 
 def run_pretrain(dataset, classifer_model, train_dataset, item_edger, entity_edger, word_edger, item2idx, entity2idx, word2idx):
     dataloader = get_dataloader(train_dataset, item2idx, entity2idx, word2idx)
-    print(f"[+] Get dataloader with size of {len(dataloader)}.")
+    print(f"[+] Build dataloader with size of {len(dataloader)}")
 
     n_item = len(item2idx) + 1
     n_entity = len(entity2idx) + 1
     n_word = len(word2idx)
     embedding_dim = 128
     device = "cuda:0"
-    epochs = 0
+    epochs = 4
 
     classifer = get_classifer(classifer_model)(embedding_dim, n_item)
     model = PretrainEmbeddingModel(n_item, n_entity, n_word, embedding_dim, classifer, device).to(device)
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    print(f"[+] Build PretrainModel")
+    print(f"[+] {model}")
 
+    print(f"[T] Start pretrain training")
     for epoch in range(1, epochs + 1, 1):
         tot_loss = 0.0
         for meta_data in tqdm(dataloader):
@@ -57,7 +60,8 @@ def run_pretrain(dataset, classifer_model, train_dataset, item_edger, entity_edg
             loss.backward()
             optimizer.step()
             tot_loss += loss.cpu().item()
-        print(epoch, tot_loss / len(dataloader))
+        print(f"[T] Epoch:{epoch}/{epochs} Loss:{tot_loss / len(dataloader)}")
+    print(f"[T] End pretrain training")
 
     item_embedding = model.item_embedding.weight.detach().cpu().numpy()
     entity_embedding = model.entity_embedding.weight.detach().cpu().numpy()
