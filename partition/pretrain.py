@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 from tqdm import tqdm
 
 from utils import get_dataloader
@@ -57,4 +58,42 @@ def run_pretrain(dataset, classifer_model, train_dataset, item_edger, entity_edg
             optimizer.step()
             tot_loss += loss.cpu().item()
         print(epoch, tot_loss / len(dataloader))
-    return model.item_embedding.weight.detach().cpu().numpy(), model.entity_embedding.weight.detach().cpu().numpy(), model.word_embedding.weight.detach().cpu().numpy()
+
+    item_embedding = model.item_embedding.weight.detach().cpu().numpy()
+    entity_embedding = model.entity_embedding.weight.detach().cpu().numpy()
+    word_embedding = model.word_embedding.weight.detach().cpu().numpy()
+
+    dialog_embedding = np.zeros((len(train_dataset), embedding_dim), dtype=np.float32)
+    for idx, conv in enumerate(tqdm(train_dataset)):
+        dialog_item_list = []
+        dialog_entity_list = []
+        dialog_word_list = []
+        for dialog in conv["dialogs"]:
+            dialog_item_list += dialog["item"]
+            dialog_item_list += dialog["entity"]
+            dialog_item_list += dialog["word"]
+        dialog_item_list = set(dialog_item_list)
+        dialog_entity_list = set(dialog_entity_list)
+        dialog_word_list = set(dialog_word_list)
+
+        dialog_item_embedding = 0.0
+        for item in dialog_item_list:
+            if item not in item2idx:
+                continue
+            dialog_item_embedding += item_embedding[item2idx[item]]
+        dialog_item_embedding = dialog_item_embedding / len(dialog_item_list) if len(dialog_item_list) > 0 else dialog_item_embedding
+        dialog_entity_embedding = 0.0
+        for entity in dialog_entity_list:
+            if entity not in entity2idx:
+                continue
+            dialog_entity_embedding += entity_embedding[entity2idx[entity]]
+        dialog_entity_embedding = dialog_entity_embedding / len(dialog_entity_list) if len(dialog_entity_list) > 0 else dialog_entity_embedding
+        dialog_word_embedding = 0.0
+        for word in dialog_word_list:
+            if word not in word2idx:
+                continue
+            dialog_word_embedding += word_embedding[word2idx[word]]
+        dialog_word_embedding = dialog_word_embedding / len(dialog_word_list) if len(dialog_word_list) > 0 else dialog_word_embedding
+        dialog_embedding[idx] = (dialog_item_embedding + dialog_entity_embedding + dialog_word_embedding) / 3.0
+
+    return item_embedding, entity_embedding, word_embedding, dialog_embedding

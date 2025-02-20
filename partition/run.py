@@ -1,7 +1,7 @@
 import os
 import json
-import torch
 import numpy as np
+from k_means_constrained import KMeansConstrained
 
 from utils import get_dataset, get_edger
 from partition.pretrain import run_pretrain
@@ -12,29 +12,66 @@ def run_partition(dataset, partition_model):
     item_edger, entity_edger, word_edger = get_edger(dataset)
     print(f"[+] Get edger with size of {len(item_edger)} {len(entity_edger)} {len(word_edger)}.")
 
-    if not os.path.isfile(os.path.join("save", "pretrain", dataset, ".built")):
+    if not os.path.isfile(os.path.join("save", "pretrain", f"{dataset}-{partition_model}", ".built")):
         item2idx = json.load(open(os.path.join("data", dataset, "entity2id.json"), "r", encoding="utf-8"))
         entity2idx = json.load(open(os.path.join("data", dataset, "entity2id.json"), "r", encoding="utf-8"))
         word2idx = json.load(open(os.path.join("data", dataset, "token2id.json"), "r", encoding="utf-8"))
-        item_embedding, entity_embedding, word_embedding = run_pretrain(
+        item_embedding, entity_embedding, word_embedding, dialog_embedding = run_pretrain(
             dataset, partition_model, train_dataset,
             item_edger, entity_edger, word_edger,
             item2idx, entity2idx, word2idx
         )
-        for path in ["save", "save/pretrain", f"save/pretrain/{dataset}"]:
+        for path in ["save", "save/pretrain", f"save/pretrain/{dataset}-{partition_model}"]:
             if os.path.isdir(os.path.join(path)):
                 continue
             os.mkdir(path)
-        np.save(open(os.path.join("save", "pretrain", dataset, "item_pretrain.npy"), "wb"), item_embedding)
-        np.save(open(os.path.join("save", "pretrain", dataset, "entity_pretrain.npy"), "wb"), entity_embedding)
-        np.save(open(os.path.join("save", "pretrain", dataset, "word_pretrain.npy"), "wb"), word_embedding)
-        with open(os.path.join("save", "pretrain", dataset, ".built"), "w") as built_file:
+        np.save(open(os.path.join("save", "pretrain", f"{dataset}-{partition_model}", "item_pretrain.npy"), "wb"), item_embedding)
+        np.save(open(os.path.join("save", "pretrain", f"{dataset}-{partition_model}", "entity_pretrain.npy"), "wb"), entity_embedding)
+        np.save(open(os.path.join("save", "pretrain", f"{dataset}-{partition_model}", "word_pretrain.npy"), "wb"), word_embedding)
+        np.save(open(os.path.join("save", "pretrain", f"{dataset}-{partition_model}", "dialog_pretrain.npy"), "wb"), dialog_embedding)
+        with open(os.path.join("save", "pretrain", f"{dataset}-{partition_model}", ".built"), "w") as built_file:
             built_file.write("\n")
 
-    item_embedding = np.load(open(os.path.join("save", "pretrain", dataset, "item_pretrain.npy"), "rb"))
-    entity_embedding = np.load(open(os.path.join("save", "pretrain", dataset, "entity_pretrain.npy"), "rb"))
-    word_embedding = np.load(open(os.path.join("save", "pretrain", dataset, "word_pretrain.npy"), "rb"))
+    item_embedding = np.load(open(os.path.join("save", "pretrain", f"{dataset}-{partition_model}", "item_pretrain.npy"), "rb"))
+    entity_embedding = np.load(open(os.path.join("save", "pretrain", f"{dataset}-{partition_model}", "entity_pretrain.npy"), "rb"))
+    word_embedding = np.load(open(os.path.join("save", "pretrain", f"{dataset}-{partition_model}", "word_pretrain.npy"), "rb"))
+    dialog_embedding = np.load(open(os.path.join("save", "pretrain", f"{dataset}-{partition_model}", "dialog_pretrain.npy"), "rb"))
 
-    print(item_embedding.shape, entity_embedding.shape, word_embedding.shape)
+    n_clusters = 8
+    if not os.path.isfile(os.path.join("save", "pretrain", f"{dataset}-{n_clusters}", ".built")):
+        print(item_embedding.shape, entity_embedding.shape, word_embedding.shape, dialog_embedding.shape)
+        item_split_label = split_embedding(item_embedding, n_clusters)
+        entity_split_label = split_embedding(entity_embedding, n_clusters)
+        word_split_label = split_embedding(word_embedding, n_clusters)
+        dialog_split_label = split_embedding(dialog_embedding, n_clusters)
 
+        for path in ["save", "save/partition", f"save/partition/{dataset}-{n_clusters}"]:
+                if os.path.isdir(os.path.join(path)):
+                    continue
+                os.mkdir(path)
+        for idx in range(n_clusters):
+            sub_dataset_mask = {
+                "item_mask": item_split_label[idx],
+                "entity_mask": entity_split_label[idx],
+                "word_mask": word_split_label[idx],
+                "dialog_mask": dialog_split_label[idx],
+            }
+            json.dump(sub_dataset_mask, open(os.path.join("save", "partition", f"{dataset}-{n_clusters}", f"sub_dataset_mask_{idx + 1}_{n_clusters}.json"), "w", encoding="utf-8"), indent=4)
+        with open(os.path.join("save", "partition", f"{dataset}-{n_clusters}", ".built"), "w") as built_file:
+            built_file.write("\n")
+        
     return
+
+def split_embedding(embedding, n_clusters):
+    kmeans = KMeansConstrained(
+        n_clusters=n_clusters,
+        size_min=int(0.8 * embedding.shape[0] / n_clusters),
+        size_max=int(1.2 * embedding.shape[0] / n_clusters),
+        max_iter=1,
+        n_jobs=4,
+    )
+    labels = kmeans.fit_predict(embedding).tolist()
+    res = [[] for _ in range(n_clusters)]
+    for idx, label in enumerate(labels):
+        res[label].append(idx)
+    return res
