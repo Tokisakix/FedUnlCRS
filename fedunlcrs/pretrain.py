@@ -1,9 +1,11 @@
+import os
+import json
 import torch
 import numpy as np
 from tqdm import tqdm
 
-from utils import get_dataloader
-from partition.classifer import get_classifer
+from fedunlcrs.utils import get_dataloader, get_dataset, get_edger
+from fedunlcrs.model import get_classifer
 
 class PretrainEmbeddingModel(torch.nn.Module):
     def __init__(self, n_item, n_entity, n_word, embedding_dim, classifer, device) -> None:
@@ -27,9 +29,8 @@ class PretrainEmbeddingModel(torch.nn.Module):
         out = self.classifer(emb)
         return out
 
-def run_pretrain(dataset, classifer_model, train_dataset, item_edger, entity_edger, word_edger, item2idx, entity2idx, word2idx):
+def train_pretrain(dataset, classifer_model, train_dataset, item_edger, entity_edger, word_edger, item2idx, entity2idx, word2idx):
     dataloader = get_dataloader(train_dataset, item2idx, entity2idx, word2idx)
-    print(f"[+] Build dataloader with size of {len(dataloader)}")
 
     n_item = len(item2idx) + 1
     n_entity = len(entity2idx) + 1
@@ -42,11 +43,8 @@ def run_pretrain(dataset, classifer_model, train_dataset, item_edger, entity_edg
     model = PretrainEmbeddingModel(n_item, n_entity, n_word, embedding_dim, classifer, device).to(device)
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-    print(f"[+] Build PretrainModel")
-    print(f"[+] {model}")
 
-    print(f"[T] Start pretrain training")
-    for epoch in range(1, epochs + 1, 1):
+    for epoch in tqdm(range(1, epochs + 1, 1)):
         tot_loss = 0.0
         for meta_data in tqdm(dataloader):
             item_list = torch.LongTensor(meta_data["item"]).to(device)
@@ -60,8 +58,6 @@ def run_pretrain(dataset, classifer_model, train_dataset, item_edger, entity_edg
             loss.backward()
             optimizer.step()
             tot_loss += loss.cpu().item()
-        print(f"[T] Epoch:{epoch}/{epochs} Loss:{tot_loss / len(dataloader)}")
-    print(f"[T] End pretrain training")
 
     item_embedding = model.item_embedding.weight.detach().cpu().numpy()
     entity_embedding = model.entity_embedding.weight.detach().cpu().numpy()
@@ -101,3 +97,28 @@ def run_pretrain(dataset, classifer_model, train_dataset, item_edger, entity_edg
         dialog_embedding[idx] = (dialog_item_embedding + dialog_entity_embedding + dialog_word_embedding) / 3.0
 
     return item_embedding, entity_embedding, word_embedding, dialog_embedding
+
+def run_pretrain(dataset, partition_model):
+    train_dataset, _, _ = get_dataset(dataset)
+    item_edger, entity_edger, word_edger = get_edger(dataset)
+
+    if not os.path.isfile(os.path.join("save", "pretrain", f"{dataset}-{partition_model}", ".built")):
+        item2idx = json.load(open(os.path.join("data", dataset, "entity2id.json"), "r", encoding="utf-8"))
+        entity2idx = json.load(open(os.path.join("data", dataset, "entity2id.json"), "r", encoding="utf-8"))
+        word2idx = json.load(open(os.path.join("data", dataset, "token2id.json"), "r", encoding="utf-8"))
+        item_embedding, entity_embedding, word_embedding, dialog_embedding = train_pretrain(
+            dataset, partition_model, train_dataset,
+            item_edger, entity_edger, word_edger,
+            item2idx, entity2idx, word2idx
+        )
+        for path in ["save", "save/pretrain", f"save/pretrain/{dataset}-{partition_model}"]:
+            if os.path.isdir(os.path.join(path)):
+                continue
+            os.mkdir(path)
+        np.save(open(os.path.join("save", "pretrain", f"{dataset}-{partition_model}", "item_pretrain.npy"), "wb"), item_embedding)
+        np.save(open(os.path.join("save", "pretrain", f"{dataset}-{partition_model}", "entity_pretrain.npy"), "wb"), entity_embedding)
+        np.save(open(os.path.join("save", "pretrain", f"{dataset}-{partition_model}", "word_pretrain.npy"), "wb"), word_embedding)
+        np.save(open(os.path.join("save", "pretrain", f"{dataset}-{partition_model}", "dialog_pretrain.npy"), "wb"), dialog_embedding)
+        with open(os.path.join("save", "pretrain", f"{dataset}-{partition_model}", ".built"), "w") as built_file:
+            built_file.write("\n")
+    return

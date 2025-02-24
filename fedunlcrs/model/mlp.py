@@ -16,10 +16,3 @@ class PretrainClassiferMLP(torch.nn.Module):
     def forward(self, x):
         out = self.mlp(x)
         return out
-
-def get_classifer(classifer_model):
-    classifer_model_table = {
-        "mlp": PretrainClassiferMLP,
-    }
-    classifer = classifer_model_table[classifer_model]
-    return classifer

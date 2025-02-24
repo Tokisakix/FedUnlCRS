@@ -18,7 +18,7 @@ def get_dataset(dataset):
 def get_dataloader(train_dataset, item2idx, entity2idx, word2idx):
     tot_data = []
 
-    for conv in tqdm(train_dataset):
+    for conv in train_dataset:
         dialog_item = []
         dialog_entity = []
         dialog_word = []

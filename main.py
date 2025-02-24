@@ -1,6 +1,7 @@
 import argparse
 
-from partition import run_partition
+from fedunlcrs.pretrain import run_pretrain
+from fedunlcrs.partition import run_partition
 
 dataset = "opendialkg"
 partition_model = "mlp"
@@ -12,5 +13,7 @@ if __name__ == "__main__":
 
     task = args.task
 
+    if task in ["pretrain", "all"]:
+        run_pretrain(dataset, partition_model)
     if task in ["partition", "all"]:
         run_partition(dataset, partition_model)

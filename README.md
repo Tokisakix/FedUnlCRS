@@ -17,6 +17,12 @@ data
 pip install -r requirements.txt
 ```
 
+## Pretrain
+
+```shell
+python main.py --task pretrain
+```
+
 ## Partition
 
 ```shell
