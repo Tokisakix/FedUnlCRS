@@ -4,3 +4,4 @@ nvitop
 PyYAML
 torch
 tqdm
+loguru

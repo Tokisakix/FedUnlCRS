@@ -5,10 +5,10 @@ download dataset from [link](https://drive.google.com/file/d/1VNWU6d1SRcrucAxQdD
 ```shell
 data
 ├─conceptnet/
-├─durecdial/
 ├─hredial/
 ├─htgredial/
-└─opendialkg/
+├─└─opendialkg/
+└─durecdial/
 ```
 
 ## Env Prepare
