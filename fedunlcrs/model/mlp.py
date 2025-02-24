@@ -1,7 +1,8 @@
 import torch
+from typing import Dict
 
 class PretrainClassiferMLP(torch.nn.Module):
-    def __init__(self, embedding_dim, n_item) -> None:
+    def __init__(self, embedding_dim:int, n_item:int) -> None:
         super().__init__()
         self.embedding_dim = embedding_dim
         self.n_item = n_item
@@ -13,6 +14,6 @@ class PretrainClassiferMLP(torch.nn.Module):
         )
         return
     
-    def forward(self, x):
+    def forward(self, x:torch.FloatTensor, item_edger:Dict, entity_edger:Dict, word_edger:Dict) -> torch.FloatTensor:
         out = self.mlp(x)
         return out

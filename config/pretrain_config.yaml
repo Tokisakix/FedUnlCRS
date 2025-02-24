@@ -1,0 +1,8 @@
+task: pretrain
+model: mlp # mlp
+dataset: opendialkg # hredial htgredial opendialkg durecdial
+save_dir: save/pretrain/opendialkg-mlp
+
+epochs: 1
+learning_rate: 3e-4
+device: "cuda:0"

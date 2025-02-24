@@ -1,0 +1,6 @@
+task: partition
+dataset: opendialkg # hredial htgredial opendialkg durecdial
+pretrain_dir: save/pretrain/opendialkg-mlp
+save_dir: save/partition/opendialkg-8
+
+n_clusters: 8

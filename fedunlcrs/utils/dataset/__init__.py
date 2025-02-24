@@ -1,11 +1,12 @@
 from tqdm import tqdm
+from typing import Dict, List, Tuple
 
 from .hredial import hredial_dataset
 from .htgredial import htgredial_dataset
 from .opendialkg import opendialkg_dataset
 from .durecdial import durecdial_dataset
 
-def get_dataset(dataset):
+def get_dataset(dataset:str) -> Tuple:
     dataset_table = {
         "hredial": hredial_dataset,
         "htgredial": htgredial_dataset,
@@ -15,10 +16,10 @@ def get_dataset(dataset):
     dataset = dataset_table[dataset]
     return dataset()
 
-def get_dataloader(train_dataset, item2idx, entity2idx, word2idx):
+def get_dataloader(train_dataset:List, item2idx:Dict, entity2idx:Dict, word2idx:Dict) -> List:
     tot_data = []
 
-    for conv in train_dataset:
+    for conv in tqdm(train_dataset):
         dialog_item = []
         dialog_entity = []
         dialog_word = []

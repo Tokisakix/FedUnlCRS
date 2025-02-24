@@ -1,6 +1,8 @@
+import torch
+
 from .mlp import PretrainClassiferMLP
 
-def get_classifer(classifer_model):
+def get_classifer(classifer_model:str) -> torch.nn.Module:
     classifer_model_table = {
         "mlp": PretrainClassiferMLP,
     }

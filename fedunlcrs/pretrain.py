@@ -3,12 +3,16 @@ import json
 import torch
 import numpy as np
 from tqdm import tqdm
+from typing import Dict, List, Tuple
 
 from fedunlcrs.utils import get_dataloader, get_dataset, get_edger
 from fedunlcrs.model import get_classifer
 
 class PretrainEmbeddingModel(torch.nn.Module):
-    def __init__(self, n_item, n_entity, n_word, embedding_dim, classifer, device) -> None:
+    def __init__(
+            self, n_item:int, n_entity:int, n_word:int,
+            embedding_dim:int, classifer:torch.nn.Module, device:str
+        ) -> None:
         super().__init__()
         self.n_item = n_item
         self.n_entity = n_entity
@@ -21,28 +25,37 @@ class PretrainEmbeddingModel(torch.nn.Module):
         self.device = device
         return
     
-    def forward(self, item_list, entity_list, word_list):
+    def forward(
+            self, item_list:torch.LongTensor, entity_list:torch.LongTensor, word_list:torch.LongTensor,
+            item_edger:Dict, entity_edger:Dict, word_edger:Dict
+        ) -> torch.FloatTensor:
         item_emb = self.item_embedding(item_list).mean(0, keepdim=True) if len(item_list) > 0 else torch.zeros((1, self.embedding_dim)).to(self.device)
         entity_emb = self.entity_embedding(entity_list).mean(0, keepdim=True) if len(entity_list) > 0 else torch.zeros((1, self.embedding_dim)).to(self.device)
         word_emb = self.word_embedding(word_list).mean(0, keepdim=True) if len(word_list) > 0 else torch.zeros((1, self.embedding_dim)).to(self.device)
         emb = (item_emb + entity_emb + word_emb) / 3.0
-        out = self.classifer(emb)
+        out = self.classifer(emb, item_edger, entity_edger, word_edger)
         return out
 
-def train_pretrain(dataset, classifer_model, train_dataset, item_edger, entity_edger, word_edger, item2idx, entity2idx, word2idx):
+def train_pretrain(
+        task_config:Dict, model_config:Dict, train_dataset:List,
+        item_edger:Dict, entity_edger:Dict, word_edger:Dict,
+        item2idx:Dict, entity2idx:Dict, word2idx:Dict
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     dataloader = get_dataloader(train_dataset, item2idx, entity2idx, word2idx)
 
-    n_item = len(item2idx) + 1
-    n_entity = len(entity2idx) + 1
-    n_word = len(word2idx)
-    embedding_dim = 128
-    device = "cuda:0"
-    epochs = 4
+    pretrain_model:str = model_config["model"]
+    embedding_dim :int = model_config["embedding_dim"]
+    n_item        :int = len(item2idx) + 1
+    n_entity      :int = len(entity2idx) + 1
+    n_word        :int = len(word2idx)
+    device        :str = task_config["device"]
+    epochs        :int = task_config["epochs"]
+    learning_rate :float = float(task_config["learning_rate"])
 
-    classifer = get_classifer(classifer_model)(embedding_dim, n_item)
+    classifer = get_classifer(pretrain_model)(embedding_dim, n_item)
     model = PretrainEmbeddingModel(n_item, n_entity, n_word, embedding_dim, classifer, device).to(device)
     criterion = torch.nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
     for epoch in tqdm(range(1, epochs + 1, 1)):
         tot_loss = 0.0
@@ -52,7 +65,7 @@ def train_pretrain(dataset, classifer_model, train_dataset, item_edger, entity_e
             word_list = torch.LongTensor(meta_data["word"]).to(device)
             label = torch.LongTensor(meta_data["label"]).to(device)
 
-            output = model(item_list, entity_list, word_list)
+            output = model(item_list, entity_list, word_list, item_edger, entity_edger, word_edger)
             optimizer.zero_grad()
             loss = criterion(output, label)
             loss.backward()
@@ -98,27 +111,25 @@ def train_pretrain(dataset, classifer_model, train_dataset, item_edger, entity_e
 
     return item_embedding, entity_embedding, word_embedding, dialog_embedding
 
-def run_pretrain(dataset, partition_model):
-    train_dataset, _, _ = get_dataset(dataset)
-    item_edger, entity_edger, word_edger = get_edger(dataset)
+def run_pretrain(task_config:Dict, model_config:Dict) -> None:
+    assert task_config["model"] == model_config["model"]
+    dataset_name  :str = task_config["dataset"]
+    save_path     :str = task_config["save_dir"]
 
-    if not os.path.isfile(os.path.join("save", "pretrain", f"{dataset}-{partition_model}", ".built")):
-        item2idx = json.load(open(os.path.join("data", dataset, "entity2id.json"), "r", encoding="utf-8"))
-        entity2idx = json.load(open(os.path.join("data", dataset, "entity2id.json"), "r", encoding="utf-8"))
-        word2idx = json.load(open(os.path.join("data", dataset, "token2id.json"), "r", encoding="utf-8"))
-        item_embedding, entity_embedding, word_embedding, dialog_embedding = train_pretrain(
-            dataset, partition_model, train_dataset,
-            item_edger, entity_edger, word_edger,
-            item2idx, entity2idx, word2idx
-        )
-        for path in ["save", "save/pretrain", f"save/pretrain/{dataset}-{partition_model}"]:
-            if os.path.isdir(os.path.join(path)):
-                continue
-            os.mkdir(path)
-        np.save(open(os.path.join("save", "pretrain", f"{dataset}-{partition_model}", "item_pretrain.npy"), "wb"), item_embedding)
-        np.save(open(os.path.join("save", "pretrain", f"{dataset}-{partition_model}", "entity_pretrain.npy"), "wb"), entity_embedding)
-        np.save(open(os.path.join("save", "pretrain", f"{dataset}-{partition_model}", "word_pretrain.npy"), "wb"), word_embedding)
-        np.save(open(os.path.join("save", "pretrain", f"{dataset}-{partition_model}", "dialog_pretrain.npy"), "wb"), dialog_embedding)
-        with open(os.path.join("save", "pretrain", f"{dataset}-{partition_model}", ".built"), "w") as built_file:
-            built_file.write("\n")
+    train_dataset, _, _ = get_dataset(dataset_name)
+    item_edger, entity_edger, word_edger = get_edger(dataset_name)
+
+    item2idx = json.load(open(os.path.join("data", dataset_name, "entity2id.json"), "r", encoding="utf-8"))
+    entity2idx = json.load(open(os.path.join("data", dataset_name, "entity2id.json"), "r", encoding="utf-8"))
+    word2idx = json.load(open(os.path.join("data", dataset_name, "token2id.json"), "r", encoding="utf-8"))
+    item_embedding, entity_embedding, word_embedding, dialog_embedding = train_pretrain(
+        task_config, model_config, train_dataset,
+        item_edger, entity_edger, word_edger,
+        item2idx, entity2idx, word2idx,
+    )
+    os.makedirs(save_path, exist_ok=True)
+    np.save(open(os.path.join(save_path, "item_pretrain.npy"), "wb"), item_embedding)
+    np.save(open(os.path.join(save_path, "entity_pretrain.npy"), "wb"), entity_embedding)
+    np.save(open(os.path.join(save_path, "word_pretrain.npy"), "wb"), word_embedding)
+    np.save(open(os.path.join(save_path, "dialog_pretrain.npy"), "wb"), dialog_embedding)
     return
