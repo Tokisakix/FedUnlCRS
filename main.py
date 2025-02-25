@@ -5,6 +5,7 @@ from loguru import logger
 
 from fedunlcrs.pretrain import run_pretrain
 from fedunlcrs.partition import run_partition
+from fedunlcrs.federated import run_federated
 
 if __name__ == "__main__":
     args = argparse.ArgumentParser()
@@ -22,5 +23,7 @@ if __name__ == "__main__":
             run_pretrain(task_config, model_config)
         case "partition":
             run_partition(task_config)
+        case "federated":
+            run_federated(task_config, model_config)
 
     exit(0)

@@ -32,3 +32,9 @@ Split the dataset in kmeans algorithm.
 ```shell
 python main.py --task_config config/partition_config.yaml --model_config config/model_config.yaml
 ```
+
+## Federated
+
+```shell
+python main.py --task_config config/federated_config.yaml --model_config config/model_config.yaml
+```

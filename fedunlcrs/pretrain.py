@@ -30,9 +30,9 @@ class PretrainEmbeddingModel(torch.nn.Module):
             self, item_list:torch.LongTensor, entity_list:torch.LongTensor, word_list:torch.LongTensor,
             item_edger:Dict, entity_edger:Dict, word_edger:Dict
         ) -> torch.FloatTensor:
-        item_emb = self.item_embedding(item_list).mean(0, keepdim=True) if len(item_list) > 0 else torch.zeros((1, self.embedding_dim)).to(self.device)
-        entity_emb = self.entity_embedding(entity_list).mean(0, keepdim=True) if len(entity_list) > 0 else torch.zeros((1, self.embedding_dim)).to(self.device)
-        word_emb = self.word_embedding(word_list).mean(0, keepdim=True) if len(word_list) > 0 else torch.zeros((1, self.embedding_dim)).to(self.device)
+        item_emb = self.item_embedding(item_list).mean(0, keepdim=True) if item_list.shape[0] > 0 else torch.zeros((1, self.embedding_dim)).to(self.device)
+        entity_emb = self.entity_embedding(entity_list).mean(0, keepdim=True) if entity_list.shape[0] > 0 else torch.zeros((1, self.embedding_dim)).to(self.device)
+        word_emb = self.word_embedding(word_list).mean(0, keepdim=True) if word_list.shape[0] > 0 else torch.zeros((1, self.embedding_dim)).to(self.device)
         emb = (item_emb + entity_emb + word_emb) / 3.0
         out = self.classifer(emb, item_edger, entity_edger, word_edger)
         return out
