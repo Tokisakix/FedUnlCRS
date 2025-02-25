@@ -4,11 +4,10 @@ dataset: opendialkg # hredial htgredial opendialkg durecdial
 mask_dir: save/partition/opendialkg-8
 save_dir: save/federated/opendialkg-mlp
 
-epochs: 2
-learning_rate: 1e-3
-device: "cuda:0"
+epochs: 20
+learning_rate: 1e-2
 
-n_clusters: 8
+n_client: 8
 split_item: False
 split_entity: False
 split_word: False

@@ -38,7 +38,7 @@ def hredial_dataset():
         temp_data = []
 
         file = json.load(open(f"data/hredial/{file_name}", "r", encoding="utf-8"))
-        for convs in tqdm(file):
+        for convs in file:
             for conv in convs:
                 temp_conv = {
                     "conv_id": int(conv["conv_id"]),

@@ -10,7 +10,7 @@ def get_side_data():
             side_data.append((a, b))
 
     entity_side = {}
-    for a, b in tqdm(side_data):
+    for a, b in side_data:
         if a in entity_side:
             entity_side[a].add(b)
         else:
@@ -26,7 +26,7 @@ def get_side_data():
     word_side = {}
     token_set = set([token.lower() for token in json.load(open("data/opendialkg/token2id.json", "r", encoding="utf-8"))])
     with(open("data/conceptnet/en_side.txt", "r", encoding="utf-8")) as concept_net_words:
-        for words in tqdm(concept_net_words.readlines()):
+        for words in concept_net_words.readlines():
             a, b = words[:-1].split(" ")
             if a not in token_set or b not in token_set:
                 continue

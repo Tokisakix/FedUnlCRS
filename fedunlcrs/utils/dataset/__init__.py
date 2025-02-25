@@ -19,7 +19,7 @@ def get_dataset(dataset:str) -> Tuple:
 def get_dataloader(train_dataset:List, item2idx:Dict, entity2idx:Dict, word2idx:Dict) -> List:
     tot_data = []
 
-    for conv in tqdm(train_dataset):
+    for conv in train_dataset:
         dialog_item = []
         dialog_entity = []
         dialog_word = []
