@@ -7,7 +7,7 @@ data
 ├─conceptnet/
 ├─hredial/
 ├─htgredial/
-├─└─opendialkg/
+├─opendialkg/
 └─durecdial/
 ```
 

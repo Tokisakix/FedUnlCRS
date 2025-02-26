@@ -2,7 +2,7 @@ task: federated
 model: mlp # mlp
 dataset: opendialkg # hredial htgredial opendialkg durecdial
 mask_dir: save/partition/opendialkg-8
-save_dir: save/federated/opendialkg-mlp
+save_dir: save/federated/opendialkg-mlp-8
 
 epochs: 20
 learning_rate: 1e-2
