@@ -3,21 +3,27 @@ import json
 import torch
 import wandb
 import numpy as np
+import pandas as pd
 from tqdm import tqdm
 from loguru import logger
 from typing import Dict, List, Tuple
 
 from fedunlcrs.utils import get_dataloader, get_dataset, get_edger
 from fedunlcrs.model import get_classifer, PretrainEmbeddingModel
+from fedunlcrs.evaluate import evaluate_rec
 
 def train_pretrain(
-        task_config:Dict, model_config:Dict, train_dataset:List,
+        task_config:Dict, model_config:Dict,
+        train_dataset:List, valid_dataset:List, test_dataset:List,
         item_edger:Dict, entity_edger:Dict, word_edger:Dict,
         item2idx:Dict, entity2idx:Dict, word2idx:Dict
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    dataloader = get_dataloader(train_dataset, item2idx, entity2idx, word2idx)
-    logger.info(f"Build dataloader with size of {len(dataloader)}")
-    wandb.init(project=task_config["wandb_project"], name=task_config["wandb_name"])
+    train_dataloader = get_dataloader(train_dataset, item2idx, entity2idx, word2idx)
+    valid_dataloader = get_dataloader(valid_dataset, item2idx, entity2idx, word2idx)
+    test_dataloader  = get_dataloader(test_dataset,  item2idx, entity2idx, word2idx)
+    logger.info(f"Build dataloader with size of {len(train_dataloader)}")
+    if task_config["wandb_use"]:
+        wandb.init(project=task_config["wandb_project"], name=task_config["wandb_name"])
 
     pretrain_model:str = model_config["model"]
     embedding_dim :int = model_config["embedding_dim"]
@@ -38,9 +44,9 @@ def train_pretrain(
     for epoch in range(1, epochs + 1, 1):
         tot_loss = 0.0
 
-        with tqdm(total= len(dataloader)) as pretrain_tqdm:
+        with tqdm(total= len(train_dataloader)) as pretrain_tqdm:
             pretrain_tqdm.set_description(f"Epoch: {epoch}/{epochs}")
-            for meta_data in dataloader:
+            for meta_data in train_dataloader:
                 item_list = torch.LongTensor(meta_data["item"]).to(device)
                 entity_list = torch.LongTensor(meta_data["entity"]).to(device)
                 word_list = torch.LongTensor(meta_data["word"]).to(device)
@@ -57,10 +63,27 @@ def train_pretrain(
                 pretrain_tqdm.update(1)
                 tot_loss += loss
 
-        tot_loss = tot_loss/len(dataloader)
+        tot_loss = tot_loss/len(train_dataloader)
         logger.info(f"[Epoch:{epoch}/{epochs} Loss:{tot_loss:.6f}]")
-        wandb.log({"epoch":epoch, "pretrain loss":tot_loss})
+        if task_config["wandb_use"]:
+            wandb.log({"epoch":epoch, "pretrain loss":tot_loss})
+
+        logger.info("Evaluate model in mode [Valid]")
+        evaluate_res = evaluate_rec(
+            model, valid_dataloader,
+            item_edger, entity_edger, word_edger
+        )
+        evaluate_df = pd.DataFrame([evaluate_res])
+        logger.info(f"\n{evaluate_df.to_string(index=False)}")
     logger.info("Finish pretraining")
+
+    logger.info("Evaluate model in mode [Test]")
+    evaluate_res = evaluate_rec(
+        model, test_dataloader,
+        item_edger, entity_edger, word_edger
+    )
+    evaluate_df = pd.DataFrame([evaluate_res])
+    logger.info(f"\n{evaluate_df.to_string(index=False)}")
 
     item_embedding = model.item_embedding.weight.detach().cpu().numpy()
     logger.info("Get item    embedding")
@@ -102,7 +125,8 @@ def train_pretrain(
         dialog_word_embedding = dialog_word_embedding / len(dialog_word_list) if len(dialog_word_list) > 0 else dialog_word_embedding
         dialog_embedding[idx] = (dialog_item_embedding + dialog_entity_embedding + dialog_word_embedding) / 3.0
     logger.info("Get dialog embedding")
-    wandb.finish()
+    if task_config["wandb_use"]:
+        wandb.finish()
 
     return item_embedding, entity_embedding, word_embedding, dialog_embedding
 
@@ -111,7 +135,7 @@ def run_pretrain(task_config:Dict, model_config:Dict) -> None:
     dataset_name  :str = task_config["dataset"]
     save_path     :str = task_config["save_dir"]
 
-    train_dataset, _, _ = get_dataset(dataset_name)
+    train_dataset, valid_dataset, test_dataset = get_dataset(dataset_name)
     logger.info(f"Load dataset {dataset_name}")
     item_edger, entity_edger, word_edger = get_edger(dataset_name)
     logger.info(f"Load item entity and word edger")
@@ -123,7 +147,8 @@ def run_pretrain(task_config:Dict, model_config:Dict) -> None:
     word2idx = json.load(open(os.path.join("data", dataset_name, "token2id.json"), "r", encoding="utf-8"))
     logger.info(f"Load word2idx   from {os.path.join("data", dataset_name, "token2id.json")}")
     item_embedding, entity_embedding, word_embedding, dialog_embedding = train_pretrain(
-        task_config, model_config, train_dataset,
+        task_config, model_config,
+        train_dataset, valid_dataset, test_dataset,
         item_edger, entity_edger, word_edger,
         item2idx, entity2idx, word2idx,
     )

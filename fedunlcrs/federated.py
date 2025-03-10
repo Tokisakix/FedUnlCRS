@@ -12,6 +12,7 @@ import torch.multiprocessing as mp
 
 from fedunlcrs.utils import get_dataloader, get_dataset, get_edger
 from fedunlcrs.model import get_classifer, PretrainEmbeddingModel
+from fedunlcrs.evaluate import evaluate_rec
 
 def get_sub_dataloader(
         tot_dataloader:List, sub_dataset_mask:Dict,
@@ -82,16 +83,16 @@ def aggregate_models(model:torch.nn.Module) -> None:
     return
 
 def work_federated(rank:int, task_config:Dict, model_config:Dict) -> None:
-    if rank != 0:
-        logger.remove()
-    else:
-        wandb.init(project=task_config["wandb_project"], name=task_config["wandb_name"])
     assert task_config["model"] == model_config["model"]
     dataset_name  :str = task_config["dataset"]
     mask_dir      :str = task_config["mask_dir"]
     save_path     :str = task_config["save_dir"]
-    n_client    :int   = task_config["n_client"]
+    n_client      :int   = task_config["n_client"]
 
+    if rank != 0:
+        logger.remove()
+    elif task_config["wandb_use"]:
+        wandb.init(project=task_config["wandb_project"], name=task_config["wandb_name"])
     dist.init_process_group(
         backend="nccl",
         init_method="tcp://localhost:12345",
@@ -151,12 +152,14 @@ def work_federated(rank:int, task_config:Dict, model_config:Dict) -> None:
 
     logger.info("Start federated training")
     for epoch in range(1, epochs + 1, 1):
+        # train worker
         optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
         client_model, client_loss = train_federated(
             model, sub_train_dataloader, optimizer, criterion,
             item_edger, entity_edger, word_edger
         )
 
+        # Loss display
         loss_list = [torch.zeros_like(client_loss) for _ in range(n_client)]
         dist.all_gather(loss_list, client_loss)
         dist.all_reduce(client_loss, dist.ReduceOp.SUM)
@@ -168,22 +171,44 @@ def work_federated(rank:int, task_config:Dict, model_config:Dict) -> None:
         loss_df.insert(0, "Client", ["Loss"])
         logger.info(f"\n{loss_df.to_string(index=False)}")
 
+        # Aggregate models
+        aggregate_models(model)
+        logger.info(f"Aggregate models")
+
+        # Evaluate valid data
         if rank == 0:
+            logger.info("Evaluate model in mode [Valid]")
+            evaluate_res = evaluate_rec(
+                model, sub_valid_dataloader,
+                item_edger, entity_edger, word_edger
+            )
+            evaluate_df = pd.DataFrame([evaluate_res])
+            logger.info(f"\n{evaluate_df.to_string(index=False)}")
+
+        # Wandb
+        if rank == 0 and task_config["wandb_use"]:
             wandb_log = {
                 "epoch":epoch,
             }
             for idx, loss in enumerate(loss_values):
                 wandb_log[f"client_{idx+1}_loss"] = loss
             wandb.log(wandb_log)
-
-        aggregate_models(model)
-        logger.info(f"Aggregate models")
     logger.info("Finish federated training")
 
-    os.makedirs(save_path, exist_ok=True)
+    # Evaluate test data
+    if rank == 0:
+        logger.info("Evaluate model in mode [Test]")
+        evaluate_res = evaluate_rec(
+            model, sub_test_dataloader,
+            item_edger, entity_edger, word_edger
+        )
+        evaluate_df = pd.DataFrame([evaluate_res])
+        logger.info(f"\n{evaluate_df.to_string(index=False)}")
+
+    # Save model
     torch.save(model.state_dict(), os.path.join(save_path, f"client_{rank+1}_model.pth"))
     logger.info(f"Save client model in {os.path.join(save_path, "client_<client_id>_model.pth")}")
-    if rank == 0:
+    if rank == 0 and task_config["wandb_use"]:
         wandb.finish()
 
     dist.destroy_process_group()

@@ -13,5 +13,6 @@ split_entity: False
 split_word: False
 split_dialog: True
 
+wandb_use: False
 wandb_project: FedUnlCRS
 wandb_name: federated-opendialkg-mlp-8

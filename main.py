@@ -1,3 +1,4 @@
+import os
 import json
 import yaml
 import argparse
@@ -14,6 +15,9 @@ if __name__ == "__main__":
     args = args.parse_args()
 
     task_config  = yaml.safe_load(open(args.task_config, "r", encoding="utf-8"))
+    save_path = task_config["save_dir"]
+    os.makedirs(save_path, exist_ok=True)
+    logger.add(os.path.join(save_path, "log.txt"), level="INFO", mode="w")
     logger.info(f"Get the task config file:\n{json.dumps(task_config, indent=4)}")
     model_config = yaml.safe_load(open(args.model_config, "r", encoding="utf-8"))
     logger.info(f"Get the model config file:\n{json.dumps(model_config, indent=4)}")

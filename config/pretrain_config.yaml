@@ -7,5 +7,6 @@ epochs: 1
 learning_rate: 1e-2
 device: "cuda:0"
 
+wandb_use: False
 wandb_project: FedUnlCRS
 wandb_name: pretrain-opendialkg-mlp
