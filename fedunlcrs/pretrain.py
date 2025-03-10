@@ -1,6 +1,7 @@
 import os
 import json
 import torch
+import wandb
 import numpy as np
 from tqdm import tqdm
 from loguru import logger
@@ -16,6 +17,7 @@ def train_pretrain(
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     dataloader = get_dataloader(train_dataset, item2idx, entity2idx, word2idx)
     logger.info(f"Build dataloader with size of {len(dataloader)}")
+    wandb.init(project=task_config["wandb_project"], name=task_config["wandb_name"])
 
     pretrain_model:str = model_config["model"]
     embedding_dim :int = model_config["embedding_dim"]
@@ -55,7 +57,9 @@ def train_pretrain(
                 pretrain_tqdm.update(1)
                 tot_loss += loss
 
-        logger.info(f"[Epoch:{epoch}/{epochs} Loss:{tot_loss/len(dataloader):.6f}]")
+        tot_loss = tot_loss/len(dataloader)
+        logger.info(f"[Epoch:{epoch}/{epochs} Loss:{tot_loss:.6f}]")
+        wandb.log({"epoch":epoch, "pretrain loss":tot_loss})
     logger.info("Finish pretraining")
 
     item_embedding = model.item_embedding.weight.detach().cpu().numpy()
@@ -98,6 +102,7 @@ def train_pretrain(
         dialog_word_embedding = dialog_word_embedding / len(dialog_word_list) if len(dialog_word_list) > 0 else dialog_word_embedding
         dialog_embedding[idx] = (dialog_item_embedding + dialog_entity_embedding + dialog_word_embedding) / 3.0
     logger.info("Get dialog embedding")
+    wandb.finish()
 
     return item_embedding, entity_embedding, word_embedding, dialog_embedding
 

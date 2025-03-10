@@ -1,5 +1,6 @@
 import os
 import json
+import wandb
 import pandas as pd
 from tqdm import tqdm
 from loguru import logger
@@ -83,6 +84,8 @@ def aggregate_models(model:torch.nn.Module) -> None:
 def work_federated(rank:int, task_config:Dict, model_config:Dict) -> None:
     if rank != 0:
         logger.remove()
+    else:
+        wandb.init(project=task_config["wandb_project"], name=task_config["wandb_name"])
     assert task_config["model"] == model_config["model"]
     dataset_name  :str = task_config["dataset"]
     mask_dir      :str = task_config["mask_dir"]
@@ -153,15 +156,26 @@ def work_federated(rank:int, task_config:Dict, model_config:Dict) -> None:
             model, sub_train_dataloader, optimizer, criterion,
             item_edger, entity_edger, word_edger
         )
+
         loss_list = [torch.zeros_like(client_loss) for _ in range(n_client)]
         dist.all_gather(loss_list, client_loss)
         dist.all_reduce(client_loss, dist.ReduceOp.SUM)
         avg_loss = client_loss / dist.get_world_size()
         logger.info(f"[Epoch:{epoch}/{epochs}] Avg client loss: {avg_loss.item():.6f}")
-        loss_values = [f"{tensor.item():.6f}" for tensor in loss_list]
-        loss_df = pd.DataFrame([loss_values], columns=[f"Client {i+1}" for i in range(n_client)])
+
+        loss_values = [tensor.item() for tensor in loss_list]
+        loss_df = pd.DataFrame([[f"{loss:.6f}" for loss in loss_values]], columns=[f"Client {i+1}" for i in range(n_client)])
         loss_df.insert(0, "Client", ["Loss"])
         logger.info(f"\n{loss_df.to_string(index=False)}")
+
+        if rank == 0:
+            wandb_log = {
+                "epoch":epoch,
+            }
+            for idx, loss in enumerate(loss_values):
+                wandb_log[f"client_{idx+1}_loss"] = loss
+            wandb.log(wandb_log)
+
         aggregate_models(model)
         logger.info(f"Aggregate models")
     logger.info("Finish federated training")
@@ -169,6 +183,8 @@ def work_federated(rank:int, task_config:Dict, model_config:Dict) -> None:
     os.makedirs(save_path, exist_ok=True)
     torch.save(model.state_dict(), os.path.join(save_path, f"client_{rank+1}_model.pth"))
     logger.info(f"Save client model in {os.path.join(save_path, "client_<client_id>_model.pth")}")
+    if rank == 0:
+        wandb.finish()
 
     dist.destroy_process_group()
     return
