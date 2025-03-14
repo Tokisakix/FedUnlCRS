@@ -6,3 +6,4 @@ torch
 tqdm
 loguru
 wandb
+numba
