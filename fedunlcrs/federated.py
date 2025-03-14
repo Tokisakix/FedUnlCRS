@@ -182,8 +182,9 @@ def work_federated(rank:int, task_config:Dict, model_config:Dict) -> None:
                 model, sub_valid_dataloader,
                 item_edger, entity_edger, word_edger
             )
-            evaluate_df = pd.DataFrame([evaluate_res])
-            logger.info(f"\n{evaluate_df.to_string(index=False)}")
+            for meta_res in evaluate_res:
+                meta_df = pd.DataFrame([meta_res])
+                logger.info(f"\n{meta_df.to_string(index=False)}")
 
         # Wandb
         if rank == 0 and task_config["wandb_use"]:
@@ -202,8 +203,9 @@ def work_federated(rank:int, task_config:Dict, model_config:Dict) -> None:
             model, sub_test_dataloader,
             item_edger, entity_edger, word_edger
         )
-        evaluate_df = pd.DataFrame([evaluate_res])
-        logger.info(f"\n{evaluate_df.to_string(index=False)}")
+        for meta_res in evaluate_res:
+            meta_df = pd.DataFrame([meta_res])
+            logger.info(f"\n{meta_df.to_string(index=False)}")
 
     # Save model
     torch.save(model.state_dict(), os.path.join(save_path, f"client_{rank+1}_model.pth"))
