@@ -1,0 +1,28 @@
+task: unlearning                # 任务类型改为去学习
+model: mlp                      # 保持与原模型一致
+dataset: opendialkg             # 使用相同数据集
+mask_dir: save/partition/opendialkg-8  # 沿用相同数据分区
+save_dir: save/unlearning/opendialkg-mlp-8  # 新保存路径
+
+# 去学习核心参数
+base_model_path: save/federated/opendialkg-mlp-8/client_final.pth  # 基础模型路径
+forget_client_id: 2             # 要遗忘的客户端ID（1-based）
+calibration_epochs: 3           # 校准训练轮次（推荐2-5）
+calibration_lr: 1e-4            # 校准学习率（通常小于原学习率）
+
+# 联邦参数继承
+n_client: 8                     # 保持客户端总数不变
+split_item: False               # 保持相同数据分割设置
+split_entity: False
+split_word: False
+split_dialog: True
+
+# 验证参数
+validate_after_unlearn: True    # 是否执行最终验证
+test_on_retained: True          # 仅在保留客户端上测试
+test_on_full: False             # 是否在全量数据上测试
+
+# 日志配置（与原配置对称）
+wandb_use: False
+wandb_project: FedUnlCRS
+wandb_name: unlearn-opendialkg-mlp-8
