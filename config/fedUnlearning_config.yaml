@@ -1,14 +1,14 @@
 task: unlearning                # 任务类型改为去学习
-model: mlp                      # 保持与原模型一致
-dataset: opendialkg             # 使用相同数据集
-mask_dir: save/partition/opendialkg-8  # 沿用相同数据分区
-save_dir: save/unlearning/opendialkg-mlp-8  # 新保存路径
+model: mlp                      
+dataset: opendialkg             
+mask_dir: save/partition/opendialkg-8 
+save_dir: save/unlearning/opendialkg-mlp-8  
+client_path: save/federated/opendialkg-mlp-8
 
-# 去学习核心参数
-base_model_path: save/federated/opendialkg-mlp-8/client_final.pth  # 基础模型路径
+epochs: 20
 forget_client_id: 2             # 要遗忘的客户端ID（1-based）
-calibration_epochs: 3           # 校准训练轮次（推荐2-5）
-calibration_lr: 1e-4            # 校准学习率（通常小于原学习率）
+calibration_epochs: 5           # 校准训练轮次（推荐2-5）
+learning_rate: 1e-2
 
 # 联邦参数继承
 n_client: 8                     # 保持客户端总数不变
