@@ -38,3 +38,9 @@ python main.py --task_config config/partition_config.yaml --model_config config/
 ```shell
 python main.py --task_config config/federated_config.yaml --model_config config/model_config.yaml
 ```
+
+## Unlearning
+
+```shell
+python main.py --task_config config/fedUnlearning_config.yaml --model_config config/model_config.yaml
+```
