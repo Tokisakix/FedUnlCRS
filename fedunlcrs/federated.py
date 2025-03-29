@@ -1,10 +1,12 @@
 import os
 import json
 import wandb
+import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from loguru import logger
 from typing import Dict, List, Tuple
+from time import perf_counter
 
 import torch
 import torch.distributed as dist
@@ -119,9 +121,9 @@ def work_federated(rank:int, task_config:Dict, model_config:Dict) -> None:
 
     pretrain_model:str   = model_config["model"]
     embedding_dim :int   = model_config["embedding_dim"]
-    n_item        :int   = len(item2idx) + 1
-    n_entity      :int   = len(entity2idx) + 1
-    n_word        :int   = len(word2idx)
+    n_item        :int   = model_config["n_item"]
+    n_entity      :int   = model_config["n_entity"]
+    n_word        :int   = model_config["n_word"]
     epochs        :int   = task_config["epochs"]
     learning_rate :float = float(task_config["learning_rate"])
     split_item    :bool  = task_config["split_item"]
@@ -136,6 +138,8 @@ def work_federated(rank:int, task_config:Dict, model_config:Dict) -> None:
     logger.info(f"Build model:\n{model}")
     sub_dataset_mask = json.load(open(os.path.join(mask_dir, f"sub_dataset_mask_{rank+1}_{n_client}.json"), encoding="utf-8"))
     logger.info(f"Load sub dataset mask from {os.path.join(mask_dir, f"sub_dataset_mask_<client_id>_{n_client}.json")}")
+    # idx_to_client = json.load(open(os.path.join(mask_dir, f"idx_to_client.json"), encoding="utf-8"))
+    # logger.info(f"Load idx to client file from {os.path.join(mask_dir, f"idx_to_client.json")}")
     sub_train_dataloader = get_sub_dataloader(
         tot_train_dataloader, sub_dataset_mask,
         split_item, split_entity, split_word, split_dialog,
@@ -150,14 +154,20 @@ def work_federated(rank:int, task_config:Dict, model_config:Dict) -> None:
     )
     logger.info(f"Build sub dataloader")
 
+    tot_train_time = []
     logger.info("Start federated training")
     for epoch in range(1, epochs + 1, 1):
         # train worker
         optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+        start_time = perf_counter()
         client_model, client_loss = train_federated(
             model, sub_train_dataloader, optimizer, criterion,
             item_edger, entity_edger, word_edger
         )
+        train_time = perf_counter() - start_time
+        train_time = torch.tensor([train_time]).to(device)
+        client_train_time = [torch.zeros_like(train_time) for _ in range(n_client)]
+        dist.all_gather(client_train_time, train_time)
 
         # Loss display
         loss_list = [torch.zeros_like(client_loss) for _ in range(n_client)]
@@ -166,10 +176,18 @@ def work_federated(rank:int, task_config:Dict, model_config:Dict) -> None:
         avg_loss = client_loss / dist.get_world_size()
         logger.info(f"[Epoch:{epoch}/{epochs}] Avg client loss: {avg_loss.item():.6f}")
 
+        time_values = [tensor.item() for tensor in client_train_time]
         loss_values = [tensor.item() for tensor in loss_list]
-        loss_df = pd.DataFrame([[f"{loss:.6f}" for loss in loss_values]], columns=[f"Client {i+1}" for i in range(n_client)])
-        loss_df.insert(0, "Client", ["Loss"])
+        loss_df = pd.DataFrame(
+            [
+                [f"{loss:.6f}" for loss in loss_values],
+                [f"{time:.2f}" for time in time_values],
+            ],
+            columns=[f"Client {i+1}" for i in range(n_client)]
+        )
+        loss_df.insert(0, "Client", ["Loss", "Time"])
         logger.info(f"\n{loss_df.to_string(index=False)}")
+        tot_train_time.append(time_values)
 
         # Aggregate models
         aggregate_models(model)
@@ -203,11 +221,27 @@ def work_federated(rank:int, task_config:Dict, model_config:Dict) -> None:
             model, sub_test_dataloader,
             item_edger, entity_edger, word_edger
         )
+        res = {
+            "train_time": {}
+        }
         for meta_res in evaluate_res:
             meta_df = pd.DataFrame([meta_res])
+            res.update(meta_res)
             logger.info(f"\n{meta_df.to_string(index=False)}")
 
-    # Save model
+        time_values = np.array(tot_train_time)
+        time_avg = time_values.mean(0)
+        time_std = time_values.std(0)
+        for idx in range(time_values.shape[-1]):
+            res["train_time"][f"client_{idx + 1}"] = {
+                "time_avg": time_avg[idx],
+                "time_std": time_std[idx],
+            }
+
+        json.dump(res, open(os.path.join(save_path, f"evaluate.json"), "w", encoding="utf-8"), indent=4)
+        logger.info(f"Save evaluate result in {os.path.join(save_path, f"evaluate.json")}")
+
+    # Save model & result
     torch.save(model.state_dict(), os.path.join(save_path, f"client_{rank+1}_model.pth"))
     logger.info(f"Save client model in {os.path.join(save_path, "client_<client_id>_model.pth")}")
     if rank == 0 and task_config["wandb_use"]:

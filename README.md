@@ -36,7 +36,7 @@ python main.py --task_config config/task/partition_config.yaml --model_config co
 ## Federated
 
 ```shell
-python main.py --task_config config/federated_config.yaml --model_config config/model_config.yaml
+python main.py --task_config config/task/federated_config.yaml --model_config config/model/opendialkg-mlp.yaml
 ```
 
 ## Unlearning
