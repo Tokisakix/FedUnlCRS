@@ -7,6 +7,7 @@ from loguru import logger
 from fedunlcrs.pretrain import run_pretrain
 from fedunlcrs.partition import run_partition
 from fedunlcrs.federated import run_federated
+from fedunlcrs.unlearning import run_unlearning
 
 if __name__ == "__main__":
     args = argparse.ArgumentParser()

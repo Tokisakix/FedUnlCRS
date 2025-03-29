@@ -1,6 +1,14 @@
 model: mlp # mlp
+dataset: htgredial
+
 embedding_dim: 128
 
 n_item:   62287
 n_entity: 62287
 n_word:   30001
+
+n_user:
+n_dialog:
+n_item_hypg:
+n_entity_hypg:
+n_word_hypg:

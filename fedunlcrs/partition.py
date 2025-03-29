@@ -102,6 +102,8 @@ def build_idx_to_client(
     idx_to_client["entity_hypg_to_client"] = {}
     idx_to_client["word_hypg_to_client"]   = {}
 
+    max_user_id = 0
+    max_dialog_id = 0
     for conv in tqdm(train_dataset):
         user_id   = int(conv["conv_id"]) if conv["user_id"] is None else int(conv["user_id"])
         dialog_id = int(conv["conv_id"])
@@ -130,5 +132,9 @@ def build_idx_to_client(
         for _ in conv_word_list:
             idx_to_client["word_hypg_to_client"][word_hyper_graph_id] = dialog_client_id
             word_hyper_graph_id += 1
+        max_user_id = max(max_user_id, user_id)
+        max_dialog_id = max(max_dialog_id, dialog_id)
+
+    # print(item_hyper_graph_id, entity_hyper_graph_id, word_hyper_graph_id, max_user_id, max_dialog_id)
 
     return idx_to_client

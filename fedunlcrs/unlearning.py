@@ -16,6 +16,7 @@ def get_first_GM(task_config: Dict, model_config: Dict) -> None:
     weight_list = []
 
     dataset_name: str = task_config["dataset"]
+    save_dir: str = task_config["save_dir"]
     item2idx = json.load(open(os.path.join('data', dataset_name, 'entity2id.json'), "r", encoding="utf-8"))
     entity2idx = json.load(open(os.path.join("data", dataset_name, "entity2id.json"), "r", encoding="utf-8"))
     word2idx = json.load(open(os.path.join("data", dataset_name, "token2id.json"), "r", encoding="utf-8"))
@@ -62,7 +63,7 @@ def get_first_GM(task_config: Dict, model_config: Dict) -> None:
         avg_state_dict[key] = avg_weights
 
     model.load_state_dict(avg_state_dict)
-    output_model_path = "save/unlearning/opendialkg-mlp-8/first_global_model.pth"
+    output_model_path = os.path.join(save_dir, "first_global_model.pth")
     
     # 确保保存路径的目录存在
     os.makedirs(os.path.dirname(output_model_path), exist_ok=True)
@@ -79,9 +80,9 @@ def unlearning(task_config: Dict, model_config: Dict) -> None:
     pretrain_model: str = model_config["model"]
     embedding_dim: int = model_config["embedding_dim"]
     
-    n_item: int = len(item2idx) + 1  
-    n_entity: int = len(entity2idx) + 1
-    n_word: int = len(word2idx)
+    n_item: int   = model_config["n_item"]
+    n_entity: int = model_config["n_entity"]
+    n_word: int   = model_config["n_word"]
     
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     
@@ -94,11 +95,11 @@ def unlearning(task_config: Dict, model_config: Dict) -> None:
     new_global_models = []
     
     client_path = task_config["client_path"]
-    forget_client_id = task_config["forget_client_id"]
+    forget_client_id = get_forget_client_id()
     epoch = task_config["calibration_epochs"]
 
     # 读取初始 old global model
-    old_state_dict = torch.load("save/unlearning/opendialkg-mlp-8/first_global_model.pth")
+    old_state_dict = torch.load(os.path.join(task_config["save_dir"], "first_global_model.pth"))
     old_global_models.append(old_state_dict)
     #old state dict是ordereddict
     #old_state_dict的keys:odict_keys(['item_embedding.weight', 'entity_embedding.weight', 'word_embedding.weight', 'classifer.mlp.0.weight', 'classifer.mlp.0.bias', 'classifer.mlp.2.weight', 'classifer.mlp.2.bias'])
@@ -106,7 +107,13 @@ def unlearning(task_config: Dict, model_config: Dict) -> None:
 
     # 读取 old clients
     for filename in os.listdir(client_path):
-        if filename.endswith(".pth") and f"client_{forget_client_id}" not in filename: 
+        flag = False
+        if filename.endswith(".pth"):
+            for client_id in forget_client_id:
+                if f"client_{client_id}" in filename:
+                    flag = True
+            if flag:
+                continue
             path = os.path.join(client_path, filename)
             print(f"Loading model from: {path}")
         
@@ -207,7 +214,11 @@ def unlearning_one_step(old_clients: Dict,
     
     return return_model_state
 
+def get_forget_client_id() -> List[int]:
+    #TODO!
+    return [0]
 
 def run_unlearning(task_config: Dict, model_config: Dict) -> None:
     get_first_GM(task_config, model_config)
     unlearning(task_config, model_config)
+    return

@@ -6,7 +6,6 @@ save_dir: save/unlearning/opendialkg-mlp-8
 client_path: save/federated/opendialkg-mlp-8
 
 epochs: 20
-forget_client_id: 2             # 要遗忘的客户端ID（1-based）
 calibration_epochs: 5           # 校准训练轮次（推荐2-5）
 learning_rate: 1e-2
 
@@ -25,4 +24,4 @@ test_on_full: False             # 是否在全量数据上测试
 # 日志配置（与原配置对称）
 wandb_use: False
 wandb_project: FedUnlCRS
-wandb_name: unlearn-opendialkg-mlp-8
+wandb_name: unlearning-opendialkg-mlp-8
