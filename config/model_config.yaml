@@ -1,2 +1,0 @@
-model: mlp # mlp
-embedding_dim: 128

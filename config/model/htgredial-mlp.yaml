@@ -1,0 +1,6 @@
+model: mlp # mlp
+embedding_dim: 128
+
+n_item:   62287
+n_entity: 62287
+n_word:   30001

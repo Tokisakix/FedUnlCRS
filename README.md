@@ -22,7 +22,7 @@ pip install -r requirements.txt
 Pretrain the embedding model which used for the dataset partition task.
 
 ```shell
-python main.py --task_config config/pretrain_config.yaml --model_config config/model_config.yaml
+python main.py --task_config config/task/pretrain_config.yaml --model_config config/model/opendialkg-mlp.yaml
 ```
 
 ## Partition
@@ -30,7 +30,7 @@ python main.py --task_config config/pretrain_config.yaml --model_config config/m
 Split the dataset in kmeans algorithm.
 
 ```shell
-python main.py --task_config config/partition_config.yaml --model_config config/model_config.yaml
+python main.py --task_config config/task/partition_config.yaml --model_config config/model/opendialkg-mlp.yaml
 ```
 
 ## Federated

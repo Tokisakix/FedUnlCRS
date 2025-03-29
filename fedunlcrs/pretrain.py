@@ -27,9 +27,9 @@ def train_pretrain(
 
     pretrain_model:str = model_config["model"]
     embedding_dim :int = model_config["embedding_dim"]
-    n_item        :int = len(item2idx) + 1
-    n_entity      :int = len(entity2idx) + 1
-    n_word        :int = len(word2idx)
+    n_item        :int = model_config["n_item"]
+    n_entity      :int = model_config["n_entity"]
+    n_word        :int = model_config["n_word"]
     device        :str = task_config["device"]
     epochs        :int = task_config["epochs"]
     learning_rate :float = float(task_config["learning_rate"])
@@ -38,6 +38,7 @@ def train_pretrain(
     model = PretrainEmbeddingModel(n_item, n_entity, n_word, embedding_dim, classifer, device).to(device)
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=5, verbose=True)
     logger.info(f"Build Model:\n{model}")
 
     logger.info("Start pretraining")
@@ -57,6 +58,7 @@ def train_pretrain(
                 loss = criterion(output, label)
                 loss.backward()
                 optimizer.step()
+                scheduler.step(loss)
 
                 loss = loss.cpu().item()
                 pretrain_tqdm.set_postfix(loss=f"{loss:.6f}")
@@ -73,8 +75,9 @@ def train_pretrain(
             model, valid_dataloader,
             item_edger, entity_edger, word_edger
         )
-        evaluate_df = pd.DataFrame([evaluate_res])
-        logger.info(f"\n{evaluate_df.to_string(index=False)}")
+        for meta_res in evaluate_res:
+            meta_df = pd.DataFrame([meta_res])
+            logger.info(f"\n{meta_df.to_string(index=False)}")
     logger.info("Finish pretraining")
 
     logger.info("Evaluate model in mode [Test]")
@@ -82,8 +85,9 @@ def train_pretrain(
         model, test_dataloader,
         item_edger, entity_edger, word_edger
     )
-    evaluate_df = pd.DataFrame([evaluate_res])
-    logger.info(f"\n{evaluate_df.to_string(index=False)}")
+    for meta_res in evaluate_res:
+        meta_df = pd.DataFrame([meta_res])
+        logger.info(f"\n{meta_df.to_string(index=False)}")
 
     item_embedding = model.item_embedding.weight.detach().cpu().numpy()
     logger.info("Get item    embedding")
