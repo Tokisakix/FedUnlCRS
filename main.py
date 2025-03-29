@@ -29,5 +29,7 @@ if __name__ == "__main__":
             run_partition(task_config)
         case "federated":
             run_federated(task_config, model_config)
+        case "unlearning":
+            run_unlearning(task_config, model_config)
 
     exit(0)
