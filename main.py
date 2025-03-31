@@ -2,6 +2,7 @@ import yaml
 import argparse
 
 from fedunlcrs.partition import PartitionConfig, PartitionWorker
+from fedunlcrs.unlearning import FedUnlConfig, FedUnlWorker
 
 if __name__ == "__main__":
     args = argparse.ArgumentParser()
@@ -13,5 +14,8 @@ if __name__ == "__main__":
     if config["task"] == "partition":
         partition_config = PartitionConfig(config)
         PartitionWorker(partition_config)
+    elif config["task"] == "unlearning":
+        fedunl_config = FedUnlConfig(config)
+        FedUnlWorker(fedunl_config)
 
     exit(0)

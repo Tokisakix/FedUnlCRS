@@ -1,6 +1,6 @@
 task: partition
 
-dataset_name: opendialkg
+dataset_name: opendialkg # hredial htgredial opendialkg durecdial
 
 partition_methon: random # random
 partition_num: 8
