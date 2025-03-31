@@ -1,7 +1,10 @@
 import os
 import json
+import numpy as np
+import pandas as pd
 from tqdm import tqdm
-from typing import Dict, List
+from typing import List
+from time import perf_counter
 
 import torch
 import torch.distributed as dist
@@ -50,8 +53,14 @@ class FedUnlWorker:
         self.build_model()
 
         for epoch in range(self.config.epochs):
+            proc_train_time = []
             for (model, optimizer, dataloader) in zip(self.models, self.optims, self.dataloaders):
-                self.federate(model, optimizer, dataloader)
+                client_train_time = self.federate(model, optimizer, dataloader)
+                proc_train_time.append(client_train_time)
+            proc_train_time = torch.tensor(proc_train_time).to(self.device)
+            tot_train_time = [torch.zeros_like(proc_train_time).to(self.device) for _ in range(self.config.n_proc)]
+            dist.gather(proc_train_time, tot_train_time if self.rank == 0 else None, 0)
+            self.train_time = [tensor.item() for tensor in torch.concatenate(tot_train_time, dim=0).reshape(-1)]
             self.aggregate(mode="valid")
             self.unlearning()
         self.aggregate(mode="test")
@@ -117,13 +126,38 @@ class FedUnlWorker:
         return
     
     def unlearning(self) -> None:
-        #TODO!
-        pass
+        if self.rank != 0:
+            return
+        
+        unlearning_result = {}
+        for (layer, topk) in self.config.unlearning_layer:
+            [unlearning_clients, _] = self.sampler.sample(layer, topk, self.config.unlearning_sample_methon)
+            unlearning_time = np.array([self.train_time[client_id] for client_id in unlearning_clients])
+            unlearning_time_avg = float(unlearning_time.mean())
+            unlearning_time_std = float(unlearning_time.std())
+            unlearning_result[layer] = {
+                "Avg": unlearning_time_avg,
+                "Std": unlearning_time_std,
+            }
+        
+        layers = [layer for (layer, topk) in self.config.unlearning_layer]
+        unlearning_df = {"/": ["Avg", "Std"]}
+        for layer in layers:
+            unlearning_df[layer] = [
+                f"{unlearning_result[layer]['Avg']:.4f}s",
+                f"{unlearning_result[layer]['Std']:.4f}s",
+            ]
+        unlearning_df = pd.DataFrame(unlearning_df)
+        print(unlearning_df)
+
+        return
     
-    def federate(self, model:torch.nn.Module, optimizer:torch.optim.Optimizer, dataloader:FedUnlDataLoader) -> None:
+    def federate(self, model:torch.nn.Module, optimizer:torch.optim.Optimizer, dataloader:FedUnlDataLoader) -> float:
+        start_time = perf_counter()
         for batch_data in tqdm(dataloader.get_data(mode="train", batch_size=self.config.batch_size), disable=(self.rank != 0)):
             optimizer.zero_grad()
             logits, labels, loss = model.rec_forward(batch_data, dataloader.item_edger, dataloader.entity_edger, dataloader.word_edger)
             loss.backward()
             optimizer.step()
-        return
+        federate_time = perf_counter() - start_time
+        return federate_time
