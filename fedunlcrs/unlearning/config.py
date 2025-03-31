@@ -19,6 +19,7 @@ class FedUnlConfig:
         self.n_client = args["n_client"]
 
         self.aggregate_methon = args["aggregate_methon"]
+        self.aggregate_rate = args["aggregate_rate"]
 
         self.epochs = args["epochs"]
         self.batch_size = args["batch_size"]

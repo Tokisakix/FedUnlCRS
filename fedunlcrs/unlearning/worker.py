@@ -1,5 +1,6 @@
 import os
 import json
+import copy
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -90,8 +91,8 @@ class FedUnlWorker:
         return
     
     def build_model(self) -> None:
-        self.models = []
-        self.optims = []
+        self.models : List[torch.nn.Module] = []
+        self.optims : List[torch.optim.Optimizer] = []
 
         for _ in self.client_ids:
             if self.config.model_name == "mlp":
@@ -109,7 +110,24 @@ class FedUnlWorker:
         return
     
     def aggregate(self) -> None:
-        #TODO!
+        if self.config.aggregate_methon == "mean":
+            proc_state_dict = copy.deepcopy(self.models[0].state_dict())
+            for model_id in range(1, len(self.models)):
+                client_state_dict = self.models[model_id].state_dict()
+                for param_key in proc_state_dict.keys():
+                    proc_state_dict[param_key] += client_state_dict[param_key]
+            
+            for param_key in proc_state_dict.keys():
+                proc_state_dict[param_key] /= self.config.n_client_per_proc
+                dist.all_reduce(proc_state_dict[param_key])
+                proc_state_dict[param_key] /= self.config.n_proc
+
+            for model in self.models:
+                new_client_state_dict = copy.deepcopy(model.state_dict())
+                for param_key in new_client_state_dict.keys():
+                    new_client_state_dict[param_key] += self.config.aggregate_rate * (proc_state_dict[param_key] - new_client_state_dict[param_key])
+                model.load_state_dict(new_client_state_dict)
+
         return
     
     def unlearning(self) -> None:
