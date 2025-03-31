@@ -1,0 +1,8 @@
+task: partition
+
+dataset_name: opendialkg
+
+partition_methon: random # random
+partition_num: 8
+
+random_config:

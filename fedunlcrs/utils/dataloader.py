@@ -1,10 +1,8 @@
 import os
 import json
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 from fedunlcrs.utils import get_dataset, get_edger
-
-from pprint import pprint
 
 class FedUnlDataLoader:
     def __init__(self, dataset_name:str, batch_size:int, partition_mask:Dict=None, parition_mode:str=None) -> None:
