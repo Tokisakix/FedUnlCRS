@@ -12,7 +12,7 @@ import torch.multiprocessing as mp
 
 from .config import FedUnlConfig
 from .sampler import GraphUnlSampler
-from fedunlcrs.utils import FedUnlDataLoader
+from fedunlcrs.utils import FedUnlDataLoader, REC_METRIC_TABLE
 from fedunlcrs.model import FedUnlMlp
 
 class FedUnlWorker:
@@ -105,6 +105,7 @@ class FedUnlWorker:
         return
     
     def aggregate(self, mode:str) -> None:
+        self.evaluate(None, None, "reset")
         dataloader = self.dataloaders[0]
         for batch_data in tqdm(dataloader.get_data(mode, batch_size=self.config.batch_size), disable=(self.rank != 0)):
             proc_logits = []
@@ -120,8 +121,9 @@ class FedUnlWorker:
             if self.rank == 0 and self.config.aggregate_methon == "mean":
                 global_logits = tot_logits.mean(0, keepdim=True)
                 ranks = torch.topk(global_logits, k=50, dim=-1)[1].detach().tolist()
-                label = [meta_data["label"] for meta_data in batch_data]
-                #TODO! evaluate
+                labels = [meta_data["label"] for meta_data in batch_data]
+                self.evaluate(ranks, labels, "step")
+        self.evaluate(None, None, "report")
 
         return
     
@@ -161,3 +163,32 @@ class FedUnlWorker:
             optimizer.step()
         federate_time = perf_counter() - start_time
         return federate_time
+    
+    def evaluate(self, ranks:List[List[int]], labels:List[int], mode:str) -> None:
+        if self.rank != 0:
+            return
+
+        if mode == "reset":
+            for metrics in REC_METRIC_TABLE:
+                for index in metrics:
+                    metric = metrics[index]
+                    metric.reset()
+        elif mode == "step":
+            for metrics in REC_METRIC_TABLE:
+                for index in metrics:
+                    metric = metrics[index]
+                    for (rank, label) in zip(ranks, labels):
+                        metric.step(rank, label)
+        elif mode == "report":
+            evaluate_res = []
+            for metrics in REC_METRIC_TABLE:
+                temp_res = {}
+                for index in metrics:
+                    metric = metrics[index]
+                    temp_res[index] = f"{metric.report():.4f}"
+                evaluate_res.append(temp_res)
+
+            for meta_res in evaluate_res:
+                meta_df = pd.DataFrame([meta_res])
+                print(f"\n{meta_df.to_string(index=False)}")
+        return
