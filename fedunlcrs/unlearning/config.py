@@ -9,6 +9,7 @@ class FedUnlConfig:
         self.dataset_name = args["dataset_name"]
 
         self.partition_methon = args["partition_methon"]
+        self.partition_mode = args["partition_mode"]
 
         self.unlearning_layer = args["unlearning_layer"]
         self.unlearning_sample_methon = args["unlearning_sample_methon"]
@@ -30,9 +31,15 @@ class FedUnlConfig:
         )
 
         self.load_random_config(args)
+        self.load_model_config(args)
 
         return
     
     def load_random_config(self, args:Dict) -> None:
         random_config = args["random_config"]
+        return
+    
+    def load_model_config(self, args:Dict) -> None:
+        model_config = args["model_config"]
+        self.mlp_config = model_config["mlp"]
         return

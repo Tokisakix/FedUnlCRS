@@ -1,11 +1,7 @@
 import json
-from tqdm import tqdm
 from typing import Dict, List
 
-concept_net_words_list = []
-
-def parser_dialogs(dialogs:List[Dict]):
-    global concept_net_words_list
+def parser_dialogs(dialogs:List[Dict], concept_net_words_list):
     res = []
     for dialog in dialogs:
         dialog_word = []
@@ -25,7 +21,7 @@ def parser_dialogs(dialogs:List[Dict]):
     return res
 
 def durecdial_dataset():
-    global concept_net_words_list
+    concept_net_words_list = []
     total_data = []
 
     with(open("data/conceptnet/zh_word.txt", "r", encoding="utf-8")) as concept_net_words:
@@ -38,11 +34,11 @@ def durecdial_dataset():
         temp_data = []
 
         file = json.load(open(f"data/durecdial/{file_name}", "r", encoding="utf-8"))
-        for conv in tqdm(file):
+        for conv in file:
             temp_conv = {
                 "conv_id": int(conv["conv_id"]),
                 "user_id": int(conv["conv_id"] if conv["user_id"] is None else conv["user_id"]),
-                "dialogs": parser_dialogs(conv["dialog"]),
+                "dialogs": parser_dialogs(conv["dialog"], concept_net_words_list),
             }
             temp_data.append(temp_conv)
 

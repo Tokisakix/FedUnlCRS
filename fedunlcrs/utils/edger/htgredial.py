@@ -1,6 +1,5 @@
 import json
 import pickle
-from tqdm import tqdm
 
 def get_side_data():
     side_data = pickle.load(open("data/htgredial/side_data.pkl", "rb"))["entity_kg"]["edge"]
@@ -8,7 +7,7 @@ def get_side_data():
     id2entity = {item:key for key, item in entity2id.items()}
 
     entity_side = {}
-    for a, b, _ in tqdm(side_data):
+    for a, b, _ in side_data:
         a = id2entity[a]
         b = id2entity[b]
         if a in entity_side:
@@ -26,7 +25,7 @@ def get_side_data():
     word_side = {}
     token_set = set([token.lower() for token in json.load(open("data/htgredial/token2id.json", "r", encoding="utf-8"))])
     with(open("data/conceptnet/zh_side.txt", "r", encoding="utf-8")) as concept_net_words:
-        for words in tqdm(concept_net_words.readlines()):
+        for words in concept_net_words.readlines():
             a, b = words[:-1].split(" ")
             if a not in token_set or b not in token_set:
                 continue

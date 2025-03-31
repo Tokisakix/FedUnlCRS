@@ -4,6 +4,7 @@ model_name: mlp # mlp
 dataset_name: opendialkg # hredial htgredial opendialkg durecdial
 
 partition_methon: random # random
+partition_mode: conv # user conv item entity word
 
 unlearning_layer:
   - [user, 8]
@@ -16,11 +17,15 @@ unlearning_layer:
   - [word_hypergraph, 8]
 unlearning_sample_methon: random # random
 
-n_client_per_proc: 1
-n_proc: 8
+n_client_per_proc: 4
+n_proc: 2
 n_client: 8
 
 epochs: 8
 batch_size: 32
 
 random_config:
+
+model_config:
+  mlp:
+    hidden_dim: 128
