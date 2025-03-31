@@ -3,7 +3,7 @@ import json
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from typing import List
+from typing import Dict, List
 from time import perf_counter
 
 import torch
@@ -61,9 +61,13 @@ class FedUnlWorker:
             tot_train_time = [torch.zeros_like(proc_train_time).to(self.device) for _ in range(self.config.n_proc)]
             dist.gather(proc_train_time, tot_train_time if self.rank == 0 else None, 0)
             self.train_time = [tensor.item() for tensor in torch.concatenate(tot_train_time, dim=0).reshape(-1)]
-            self.aggregate(mode="valid")
+
+            self.evaluate(mode="valid")
+            self.aggregate()
             self.unlearning()
-        self.aggregate(mode="test")
+
+        self.evaluate(mode="test")
+        self.aggregate()
 
         dist.destroy_process_group()
 
@@ -104,27 +108,8 @@ class FedUnlWorker:
 
         return
     
-    def aggregate(self, mode:str) -> None:
-        self.evaluate(None, None, "reset")
-        dataloader = self.dataloaders[0]
-        for batch_data in tqdm(dataloader.get_data(mode, batch_size=self.config.batch_size), disable=(self.rank != 0)):
-            proc_logits = []
-            for client_model in self.models:
-                logits, labels, loss = client_model.rec_forward(batch_data, dataloader.item_edger, dataloader.entity_edger, dataloader.word_edger)
-                proc_logits.append(logits)
-            
-            proc_logits = torch.concatenate(proc_logits, dim=0)
-            tot_logits  = [torch.zeros_like(proc_logits).to(self.device) for _ in range(self.config.n_proc)]
-            dist.gather(proc_logits, tot_logits if self.rank == 0 else None, 0)
-            tot_logits = torch.concatenate(tot_logits, dim=0)
-
-            if self.rank == 0 and self.config.aggregate_methon == "mean":
-                global_logits = tot_logits.mean(0, keepdim=True)
-                ranks = torch.topk(global_logits, k=50, dim=-1)[1].detach().tolist()
-                labels = [meta_data["label"] for meta_data in batch_data]
-                self.evaluate(ranks, labels, "step")
-        self.evaluate(None, None, "report")
-
+    def aggregate(self) -> None:
+        #TODO!
         return
     
     def unlearning(self) -> None:
@@ -164,31 +149,54 @@ class FedUnlWorker:
         federate_time = perf_counter() - start_time
         return federate_time
     
-    def evaluate(self, ranks:List[List[int]], labels:List[int], mode:str) -> None:
-        if self.rank != 0:
-            return
+    def evaluate(self, mode:str) -> None:
+        proc_evaluate_res = []
+        for (model, dataloader) in zip(self.models, self.dataloaders):
+            client_evaluate_res = self.evaluate_rec(model, dataloader, mode)
+            proc_evaluate_res.append(client_evaluate_res)
+        proc_evaluate_res = torch.tensor(proc_evaluate_res).to(self.device)
+        tot_evaluate_res = [torch.zeros_like(proc_evaluate_res).to(self.device) for _ in range(self.config.n_proc)]
+        dist.gather(proc_evaluate_res, tot_evaluate_res if self.rank == 0 else None, 0)
+        evaluate_res = torch.concatenate(tot_evaluate_res, dim=0).reshape((self.config.n_client, -1)).detach().cpu().numpy()
 
-        if mode == "reset":
+        if self.rank == 0:
+            evaluate_res_avg = evaluate_res.mean(0)
+            evaluate_res_std = evaluate_res.std(0)
+
+            metric_idx = 0
             for metrics in REC_METRIC_TABLE:
-                for index in metrics:
-                    metric = metrics[index]
-                    metric.reset()
-        elif mode == "step":
+                evaluate_df = {"/": ["Avg", "Std"]}
+                for metric in metrics.keys():
+                    evaluate_df[metric] = [
+                        f"{evaluate_res_avg[metric_idx]:.4f}",
+                        f"{evaluate_res_std[metric_idx]:.4f}",
+                    ]
+                    metric_idx += 1
+                evaluate_df = pd.DataFrame(evaluate_df)
+                print(evaluate_df)
+        return
+    
+    def evaluate_rec(self, model:torch.nn.Module, dataloader:FedUnlDataLoader, mode:str) -> List[float]:
+        for metrics in REC_METRIC_TABLE:
+            for index in metrics:
+                metric = metrics[index]
+                metric.reset()
+
+        for batch_data in tqdm(dataloader.get_data(mode, batch_size=self.config.batch_size), disable=(self.rank != 0)):
+            labels = [meta_data["label"] for meta_data in batch_data]
+            logits, _, loss = model.rec_forward(batch_data, dataloader.item_edger, dataloader.entity_edger, dataloader.word_edger)
+            ranks  = torch.topk(logits, k=50, dim=-1)[1].tolist()
+            
             for metrics in REC_METRIC_TABLE:
                 for index in metrics:
                     metric = metrics[index]
                     for (rank, label) in zip(ranks, labels):
                         metric.step(rank, label)
-        elif mode == "report":
-            evaluate_res = []
-            for metrics in REC_METRIC_TABLE:
-                temp_res = {}
-                for index in metrics:
-                    metric = metrics[index]
-                    temp_res[index] = f"{metric.report():.4f}"
-                evaluate_res.append(temp_res)
 
-            for meta_res in evaluate_res:
-                meta_df = pd.DataFrame([meta_res])
-                print(f"\n{meta_df.to_string(index=False)}")
-        return
+        evaluate_res = []
+        for metrics in REC_METRIC_TABLE:
+            for index in metrics:
+                metric = metrics[index]
+                evaluate_res.append(metric.report())
+
+        return evaluate_res

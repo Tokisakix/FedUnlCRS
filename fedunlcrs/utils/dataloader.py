@@ -22,8 +22,8 @@ class FedUnlDataLoader:
 
         # build dataset
         self.train_dataset = self.build_dataset(raw_train_dataset)
-        self.valid_dataset = self.build_dataset(raw_valid_dataset, use_mask=False)
-        self.test_dataset = self.build_dataset(raw_test_dataset, use_mask=False)
+        self.valid_dataset = self.build_dataset(raw_valid_dataset)
+        self.test_dataset = self.build_dataset(raw_test_dataset)
 
         return
     
