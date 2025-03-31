@@ -18,8 +18,11 @@ class FedUnlConfig:
         self.n_proc = args["n_proc"]
         self.n_client = args["n_client"]
 
+        self.aggregate_methon = args["aggregate_methon"]
+
         self.epochs = args["epochs"]
         self.batch_size = args["batch_size"]
+        self.learning_rate = args["learning_rate"]
 
         self.load_path = os.path.join(
             "save", "partition",

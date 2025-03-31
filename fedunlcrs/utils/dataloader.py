@@ -22,8 +22,8 @@ class FedUnlDataLoader:
 
         # build dataset
         self.train_dataset = self.build_dataset(raw_train_dataset)
-        self.valid_dataset = self.build_dataset(raw_valid_dataset)
-        self.test_dataset = self.build_dataset(raw_test_dataset)
+        self.valid_dataset = self.build_dataset(raw_valid_dataset, use_mask=False)
+        self.test_dataset = self.build_dataset(raw_test_dataset, use_mask=False)
 
         return
     
@@ -57,16 +57,16 @@ class FedUnlDataLoader:
         assert len(edger) == n
         return edger
     
-    def build_dataset(self, raw_dataset:List[Dict]) -> List[Dict]:
+    def build_dataset(self, raw_dataset:List[Dict], use_mask:bool=True) -> List[Dict]:
         dataset = []
 
         for conv in raw_dataset:
             user_id = int(conv["user_id"])
-            if self.parition_mode == "user" and user_id not in self.partition_mask["user_mask"]:
+            if use_mask and self.parition_mode == "user" and user_id not in self.partition_mask["user_mask"]:
                 continue
 
             conv_id = int(conv["conv_id"])
-            if self.parition_mode == "conv" and conv_id not in self.partition_mask["conv_mask"]:
+            if use_mask and self.parition_mode == "conv" and conv_id not in self.partition_mask["conv_mask"]:
                 continue
 
             conv_item_list = set()
@@ -94,25 +94,25 @@ class FedUnlDataLoader:
                 for item in dialog["item"]:
                     if item in self.item2id:
                         item_id = self.item2id[item]
-                        if self.parition_mode == "item" and item_id not in self.partition_mask["item_mask"]:
+                        if use_mask and self.parition_mode == "item" and item_id not in self.partition_mask["item_mask"]:
                             continue
                         conv_item_list.add(item_id)
                 for entity in dialog["entity"]:
                     if entity in self.entity2id:
                         entity_id = self.entity2id[entity]
-                        if self.parition_mode == "entity" and entity_id not in self.partition_mask["entity_mask"]:
+                        if use_mask and self.parition_mode == "entity" and entity_id not in self.partition_mask["entity_mask"]:
                             continue
                         conv_entity_list.add(entity_id)
                 for word in dialog["word"]:
                     if word in self.word2id:
                         word_id = self.word2id[word]
-                        if self.parition_mode == "word" and word_id not in self.partition_mask["word_mask"]:
+                        if use_mask and self.parition_mode == "word" and word_id not in self.partition_mask["word_mask"]:
                             continue
                         conv_word_list.add(word_id)
 
         return dataset
 
-    def get_data(self, mode:str) -> List[Dict]:
+    def get_data(self, mode:str, batch_size:int) -> List[Dict]:
         batch_data = []
 
         if mode == "train":
@@ -125,9 +125,10 @@ class FedUnlDataLoader:
         batch = []
         for meta_data in dataset:
             batch.append(meta_data)
-            if len(batch) >= self.batch_size:
+            if len(batch) >= batch_size:
                 batch_data.append(batch)
                 batch = []
-        batch_data.append(batch)
+        if len(batch) > 0:
+            batch_data.append(batch)
 
         return batch_data
