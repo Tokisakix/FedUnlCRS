@@ -12,10 +12,8 @@ if __name__ == "__main__":
     config = yaml.safe_load(open(args.config, "r", encoding="utf-8"))
 
     if config["task"] == "partition":
-        partition_config = PartitionConfig(config)
-        PartitionWorker(partition_config)
+        PartitionWorker(PartitionConfig(config))
     elif config["task"] == "unlearning":
-        fedunl_config = FedUnlConfig(config)
-        FedUnlWorker(fedunl_config)
+        FedUnlWorker(FedUnlConfig(config))
 
     exit(0)

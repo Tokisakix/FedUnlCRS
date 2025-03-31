@@ -5,15 +5,22 @@ dataset_name: opendialkg # hredial htgredial opendialkg durecdial
 
 partition_methon: random # random
 
-unlearning_methon: graph_unlearning # graph_unlearning hypergraph_unlearning
-unlearning_layer: user # user conv item entity word | item_hypergraph entity_hypergraph word_hypergraph
+unlearning_layer:
+  - [user, 8]
+  - [conv, 8]
+  - [item, 8]
+  - [entity, 8]
+  - [word, 8]
+  - [item_hypergraph, 8]
+  - [entity_hypergraph, 8]
+  - [word_hypergraph, 8]
 unlearning_sample_methon: random # random
 
 n_client_per_proc: 1
 n_proc: 8
 n_client: 8
 
-epochs: 10
+epochs: 8
 batch_size: 32
 
 random_config:

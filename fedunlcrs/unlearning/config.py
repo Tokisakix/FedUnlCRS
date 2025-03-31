@@ -10,7 +10,6 @@ class FedUnlConfig:
 
         self.partition_methon = args["partition_methon"]
 
-        self.unlearning_methon = args["unlearning_methon"]
         self.unlearning_layer = args["unlearning_layer"]
         self.unlearning_sample_methon = args["unlearning_sample_methon"]
 
@@ -26,8 +25,8 @@ class FedUnlConfig:
             f"{self.dataset_name}_{self.partition_methon}_{self.n_client}"
         )
         self.save_path = os.path.join(
-            "save", self.unlearning_methon,
-            f"{self.model_name}_{self.unlearning_methon}_{self.unlearning_layer}_{self.dataset_name}_{self.partition_methon}_{self.n_client}"
+            "save", "unlearning",
+            f"{self.model_name}_{self.unlearning_sample_methon}_{self.dataset_name}_{self.partition_methon}_{self.n_client}"
         )
 
         self.load_random_config(args)
