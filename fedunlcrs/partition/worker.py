@@ -23,9 +23,10 @@ class PartitionWorker:
         entity_id_list = list(range(self.dataloader.n_entity))
         word_id_list = list(range(self.dataloader.n_word))
 
-        for conv in self.dataloader.train_dataset:
-            user_id_list.add(conv["user_id"])
-            conv_id_list.add(conv["conv_id"])
+        for dataset in [self.dataloader.train_dataset, self.dataloader.valid_dataset, self.dataloader.test_dataset]:
+            for conv in dataset:
+                user_id_list.add(conv["user_id"])
+                conv_id_list.add(conv["conv_id"])
         user_id_list = list(user_id_list)
         conv_id_list = list(conv_id_list)
 
