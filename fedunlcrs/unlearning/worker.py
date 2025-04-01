@@ -14,7 +14,7 @@ import torch.multiprocessing as mp
 from .config import FedUnlConfig
 from .sampler import GraphUnlSampler
 from fedunlcrs.utils import FedUnlDataLoader, REC_METRIC_TABLE
-from fedunlcrs.model import FedUnlMlp
+from fedunlcrs.model import FedUnlMlp, HyCoRec
 
 class FedUnlWorker:
     def __init__(self, config:FedUnlConfig) -> None:
@@ -100,12 +100,17 @@ class FedUnlWorker:
                     self.n_item, self.n_entity, self.n_word,
                     self.config.mlp_config, self.device,
                 ).to(self.device)
-                client_optimizer = torch.optim.Adam(
-                    client_model.parameters(),
-                    lr=self.config.learning_rate,
-                )
-                self.models.append(client_model)
-                self.optims.append(client_optimizer)
+            elif self.config.model_name == "hycorec":
+                client_model = HyCoRec(
+                    self.n_item, self.n_entity, self.n_word,
+                    self.config.hycorec_config, self.device,
+                ).to(self.device)
+            client_optimizer = torch.optim.Adam(
+                client_model.parameters(),
+                lr=self.config.learning_rate,
+            )
+            self.models.append(client_model)
+            self.optims.append(client_optimizer)
 
         return
     

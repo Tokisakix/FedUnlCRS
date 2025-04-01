@@ -1,6 +1,6 @@
 task: unlearning
 
-model_name: mlp # mlp
+model_name: hycorec # mlp hycorec
 dataset_name: opendialkg # hredial htgredial opendialkg durecdial
 
 partition_methon: random # random
@@ -24,12 +24,18 @@ n_client: 8
 aggregate_methon: mean # mean
 aggregate_rate: 0.0003
 
-epochs: 2
+epochs: 8
 batch_size: 32
-learning_rate: 0.001
+learning_rate: 0.01
 
 random_config:
 
 model_config:
   mlp:
     hidden_dim: 256
+  
+  hycorec:
+    num_bases: 8
+    emb_dim: 256
+    pooling_methon: Attn # Mean Attn
+    mha_n_heads: 4

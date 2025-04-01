@@ -45,5 +45,8 @@ class FedUnlConfig:
     
     def load_model_config(self, args:Dict) -> None:
         model_config = args["model_config"]
+
         self.mlp_config = model_config["mlp"]
+
+        self.hycorec_config = model_config["hycorec"]
         return
