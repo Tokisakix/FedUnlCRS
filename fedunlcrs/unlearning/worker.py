@@ -128,6 +128,18 @@ class FedUnlWorker:
                     new_client_state_dict[param_key] += self.config.aggregate_rate * (proc_state_dict[param_key] - new_client_state_dict[param_key])
                 model.load_state_dict(new_client_state_dict)
 
+        for (client_id, model) in zip(self.client_ids, self.models):
+            torch.save(
+                model.state_dict(),
+                open(os.path.join(self.config.save_path, f"client_{client_id}_state_dict.pth"), "wb"),
+            )
+
+        if self.rank == 0:
+            torch.save(
+                proc_state_dict,
+                open(os.path.join(self.config.save_path, f"global_{self.config.aggregate_methon}_state_dict.pth"), "wb"),
+            )
+
         return
     
     def unlearning(self) -> None:
