@@ -15,7 +15,7 @@ unlearning_layer:
   - [item_hypergraph, 8]
   - [entity_hypergraph, 8]
   - [word_hypergraph, 8]
-unlearning_sample_methon: random # random
+unlearning_sample_methon: random # random topk
 
 n_client_per_proc: 1
 n_proc: 8

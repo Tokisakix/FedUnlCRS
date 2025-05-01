@@ -112,6 +112,27 @@ class FedUnlDataLoader:
 
         return dataset
 
+    def get_fed_data(self, mode:str, batch_size:int) -> List[Dict]:
+        batch_data = []
+
+        if mode == "train":
+            dataset = self.train_dataset
+        elif mode == "valid":
+            dataset = self.valid_dataset
+        elif mode == "test":
+            dataset = self.test_dataset
+
+        batch = []
+        for meta_data in dataset:
+            batch.append(meta_data)
+            if len(batch) >= batch_size:
+                batch_data.append(batch)
+                batch = []
+        if len(batch) > 0:
+            batch_data.append(batch)
+
+        return batch_data
+
     def get_data(self, mode:str, batch_size:int) -> List[Dict]:
         batch_data = []
 

@@ -147,13 +147,13 @@ class FedUnlWorker:
 
         return
     
-    def unlearning(self) -> None:
+    def unlearning(self) -> Dict:
         if self.rank != 0:
             return
         
         unlearning_result = {}
         for (layer, topk) in self.config.unlearning_layer:
-            [unlearning_clients, _] = self.sampler.sample(layer, topk, self.config.unlearning_sample_methon)
+            [unlearning_clients, _, unlearning_maskk] = self.sampler.sample(layer, topk, self.config.unlearning_sample_methon)
             unlearning_time = np.array([self.train_time[client_id] for client_id in unlearning_clients])
             unlearning_time_avg = float(unlearning_time.mean())
             unlearning_time_std = float(unlearning_time.std())
@@ -172,7 +172,8 @@ class FedUnlWorker:
         unlearning_df = pd.DataFrame(unlearning_df)
         print(unlearning_df)
 
-        return
+        unlearning_mask = unlearning_maskk
+        return unlearning_mask
     
     def federate(self, model:torch.nn.Module, optimizer:torch.optim.Optimizer, dataloader:FedUnlDataLoader) -> float:
         start_time = perf_counter()
@@ -184,10 +185,10 @@ class FedUnlWorker:
         federate_time = perf_counter() - start_time
         return federate_time
     
-    def evaluate(self, mode:str) -> None:
+    def evaluate(self, mode:str, unlearning_mask:Dict) -> None:
         proc_evaluate_res = []
         for (model, dataloader) in zip(self.models, self.dataloaders):
-            client_evaluate_res = self.evaluate_rec(model, dataloader, mode)
+            client_evaluate_res = self.evaluate_rec(model, dataloader, mode, unlearning_mask)
             proc_evaluate_res.append(client_evaluate_res)
         proc_evaluate_res = torch.tensor(proc_evaluate_res).to(self.device)
         tot_evaluate_res = [torch.zeros_like(proc_evaluate_res).to(self.device) for _ in range(self.config.n_proc)]
@@ -210,14 +211,14 @@ class FedUnlWorker:
                 evaluate_df = pd.DataFrame(evaluate_df)
                 print(evaluate_df)
         return
-    
-    def evaluate_rec(self, model:torch.nn.Module, dataloader:FedUnlDataLoader, mode:str) -> List[float]:
+        
+    def evaluate_rec(self, model:torch.nn.Module, dataloader:FedUnlDataLoader, mode:str, unlearning_mask:Dict) -> List[float]:
         for metrics in REC_METRIC_TABLE:
             for index in metrics:
                 metric = metrics[index]
                 metric.reset()
 
-        for batch_data in tqdm(dataloader.get_data(mode, batch_size=self.config.batch_size), disable=(self.rank != 0)):
+        for batch_data in tqdm(dataloader.get_data(mode, self.config.batch_size, unlearning_mask), disable=(self.rank != 0)):
             labels = [meta_data["label"] for meta_data in batch_data]
             logits, _, loss = model.rec_forward(batch_data, dataloader.item_edger, dataloader.entity_edger, dataloader.word_edger)
             ranks  = torch.topk(logits, k=50, dim=-1)[1].tolist()
