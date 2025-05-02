@@ -115,6 +115,8 @@ class FedUnlWorker:
         self.n_item = self.dataloaders[0].n_item
         self.n_entity = self.dataloaders[0].n_entity
         self.n_word = self.dataloaders[0].n_word
+        self.start_idx = self.dataloaders[0].start_idx
+        self.end_idx = self.dataloaders[0].end_idx
         return
     
     def build_model(self) -> None:
@@ -287,7 +289,9 @@ class FedUnlWorker:
         start_time = perf_counter()
         for batch_data in tqdm(dataloader.get_data(mode="train", batch_size=self.config.batch_size), disable=(self.rank != 0)):
             optimizer.zero_grad()
-            logits, labels, loss = model.rec_forward(batch_data, dataloader.item_edger, dataloader.entity_edger, dataloader.word_edger)
+            _, _, rec_loss = model.rec_forward(batch_data, dataloader.item_edger, dataloader.entity_edger, dataloader.word_edger)
+            _, _, con_loss = model.con_forward(batch_data, dataloader.item_edger, dataloader.entity_edger, dataloader.word_edger)
+            loss = rec_loss + con_loss
             loss.backward()
             optimizer.step()
         federate_time = perf_counter() - start_time

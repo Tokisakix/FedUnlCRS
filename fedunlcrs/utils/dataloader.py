@@ -15,6 +15,10 @@ class FedUnlDataLoader:
 
         # load raw data
         (raw_train_dataset, raw_valid_dataset, raw_test_dataset), (raw_item_edger, raw_entity_edger, raw_word_edger) = self.load_raw_data()
+        
+        # build con token
+        self.start_idx = self.word2id["__start__"]
+        self.end_idx = self.word2id["__end__"]
 
         # build edger
         self.item_edger = self.build_edger(raw_item_edger, self.item2id, self.n_item)
@@ -78,6 +82,12 @@ class FedUnlDataLoader:
                 role = dialog["role"]
                 labels = dialog["item"]
                 
+                conv_text_list = []
+                for text in dialog["text"]:
+                    if text in self.word2id:
+                        text_id = self.word2id[text]
+                        conv_text_list.append(text_id)
+                
                 if role == "Recommender":
                     for label in labels:
                         if label in self.item2id:
@@ -88,6 +98,7 @@ class FedUnlDataLoader:
                                 "item": list(conv_item_list),
                                 "entity": list(conv_entity_list),
                                 "word": list(conv_word_list),
+                                "text": [self.start_idx] + conv_text_list + [self.end_idx],
                                 "label": label,
                             }
                             dataset.append(meta_data)
