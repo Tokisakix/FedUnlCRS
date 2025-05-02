@@ -24,6 +24,7 @@ class FedUnlConfig:
         self.epochs = args["epochs"]
         self.batch_size = args["batch_size"]
         self.learning_rate = args["learning_rate"]
+        self.emb_dim = 256
 
         self.load_path = os.path.join(
             "save", "partition",
@@ -32,6 +33,10 @@ class FedUnlConfig:
         self.save_path = os.path.join(
             "save", "unlearning",
             f"{self.model_name}_{self.unlearning_sample_methon}_{self.dataset_name}_{self.partition_methon}_{self.n_client}"
+        )
+        self.evaluate_path = os.path.join(
+            "save", "evaluate",
+            f"{self.model_name}_{self.dataset_name}_{self.n_client}"
         )
 
         self.load_random_config(args)
