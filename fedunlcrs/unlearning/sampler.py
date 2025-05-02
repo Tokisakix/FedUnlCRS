@@ -103,7 +103,7 @@ class GraphUnlSampler:
         all_clients = set(range(self.config.n_client))
         learning_clients = list(all_clients - set(unlearning_clients))
 
-        return [learning_clients, unlearning_clients, unlearning_mask]
+        return unlearning_clients, learning_clients, unlearning_mask
 
     def methon_random(self, topk:int, id_to_client:Dict) -> Tuple[List[int], Dict]:
         sample_size = topk

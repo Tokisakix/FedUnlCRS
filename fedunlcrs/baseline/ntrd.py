@@ -63,7 +63,7 @@ class SelfAttentionSeq(nn.Module):
             return torch.matmul(torch.transpose(attention, 1, 2), h).squeeze(1)
 
 class NTRDModel(torch.nn.Module):
-    def __init__(self, n_item:int, n_entity:int, n_word:int, model_config:Dict, device:str, processed_entity_kg):
+    def __init__(self, n_item:int, n_entity:int, n_word:int, model_config:Dict, device:str):
         """
 
         Args:
@@ -84,14 +84,6 @@ class NTRDModel(torch.nn.Module):
         self.n_entity = n_entity
         self.pad_word_idx = 0
         self.pad_entity_idx = 0
-        self.n_relation = processed_entity_kg['n_relation']
-        entity_edges = processed_entity_kg['edge']
-        self.entity_edge_idx, self.entity_edge_type = edge_to_pyg_format(entity_edges, 'RGCN')
-        self.entity_edge_idx = self.entity_edge_idx.to(device)
-        self.entity_edge_type = self.entity_edge_type.to(device)
-        word_edges = processed_entity_kg['word_edge']
-
-        self.word_edges = edge_to_pyg_format(word_edges, 'GCN').to(device)
 
         self.num_bases = model_config['num_bases']
         self.kg_emb_dim = model_config['emb_dim']
@@ -104,9 +96,9 @@ class NTRDModel(torch.nn.Module):
         self._build_recommendation_layer()
     
     def _init_embeddings(self):
-        self.token_embedding = nn.Embedding(self.vocab_size, self.token_emb_dim, self.pad_token_idx)
-        nn.init.normal_(self.token_embedding.weight, mean=0, std=self.kg_emb_dim ** -0.5)
-        nn.init.constant_(self.token_embedding.weight[self.pad_token_idx], 0)
+        self.entity_embedding = nn.Embedding(self.n_entity, self.token_emb_dim, self.pad_token_idx)
+        nn.init.normal_(self.entity_embedding.weight, mean=0, std=self.kg_emb_dim ** -0.5)
+        nn.init.constant_(self.entity_embedding.weight[self.pad_token_idx], 0)
         self.word_kg_embedding = nn.Embedding(self.n_word, self.kg_emb_dim, self.pad_word_idx)
         nn.init.normal_(self.word_kg_embedding.weight, mean=0, std=self.kg_emb_dim ** -0.5)
         nn.init.constant_(self.word_kg_embedding.weight[self.pad_word_idx], 0)
@@ -115,7 +107,7 @@ class NTRDModel(torch.nn.Module):
 
     def _build_kg_layer(self):
         # db encoder
-        self.entity_encoder = RGCNConv(self.n_entity, self.kg_emb_dim, self.n_relation, self.num_bases)
+        # self.entity_encoder = RGCNConv(self.n_entity, self.kg_emb_dim, self.n_relation, self.num_bases)
         self.entity_self_attn = SelfAttentionSeq(self.kg_emb_dim, self.kg_emb_dim)
 
         # concept encoder
@@ -156,35 +148,34 @@ class NTRDModel(torch.nn.Module):
         related_entity = torch.LongTensor(related_entity).to(self.device)  # [bs, entity_len]
         related_word = torch.LongTensor(related_word).to(self.device)      # [bs, word_len]
 
-        entity_padding_mask = related_entity.eq(self.pad_entity_idx)  # [bs, entity_len]
-        word_padding_mask = related_word.eq(self.pad_word_idx)        # [bs, word_len]
+        # entity_padding_mask = related_entity.eq(self.pad_entity_idx)  # [bs, entity_len]
+        # word_padding_mask = related_word.eq(self.pad_word_idx)        # [bs, word_len]
 
-        bs, entity_len = related_entity.shape
-        entity_repr = self.entity_encoder(None, self.entity_edge_idx, self.entity_edge_type) 
-        flat_entity = related_entity.view(-1)  # [bs * entity_len]
-        entity_representations = entity_repr[flat_entity].view(bs, entity_len, -1) 
+        user_embedding = []
+        for entity_list, word_list in zip(related_entity, related_word):
+            entity_repr = self.entity_embedding.weight[entity_list]
+            entity_representations = entity_repr.mean(dim=0, keepdim=True)
 
-        bs, word_len = related_word.shape
-        word_repr = self.word_encoder(self.word_kg_embedding.weight, self.word_edges)
-        flat_word = related_word.view(-1)
-        word_representations = word_repr[flat_word].view(bs, word_len, -1)
+            word_repr = self.word_kg_embedding.weight[word_list]
+            word_representations = word_repr.mean(dim=0, keepdim=True)
 
-        entity_attn_rep = self.entity_self_attn(entity_representations, entity_padding_mask)
-        word_attn_rep = self.word_self_attn(word_representations, word_padding_mask)
+            # entity_attn_rep = self.entity_self_attn(entity_representations, entity_padding_mask)
+            # word_attn_rep = self.word_self_attn(word_representations, word_padding_mask)
 
-        user_rep = self.gate_layer(entity_attn_rep, word_attn_rep)
-        rec_scores = F.linear(user_rep, entity_repr, self.rec_bias.bias)  # (bs, #entity)
+            user_rep = self.gate_layer(entity_representations, word_representations)
+            user_embedding.append(user_rep)
+        user_embedding = torch.concatenate(user_embedding, dim=0)
+        rec_scores = F.linear(user_embedding, self.entity_embedding.weight, self.rec_bias.bias)  # (bs, #entity)
 
         rec_loss = self.rec_loss(rec_scores, labels)
 
         info_loss_mask = torch.sum(labels)
         if info_loss_mask.item() == 0:
             info_loss = None
-        else:
+        elif False:
             word_info_rep = self.infomax_norm(word_attn_rep)  
             info_predict = F.linear(word_info_rep, entity_repr, self.infomax_bias.bias)  # (bs, #entity)
             labels_one_hot = F.one_hot(labels, num_classes=info_predict.size(1)).float() 
             info_loss = self.infomax_loss(info_predict, labels_one_hot) / info_loss_mask
 
-
-        return rec_scores, info_loss, rec_loss
+        return rec_scores, 0.0, rec_loss

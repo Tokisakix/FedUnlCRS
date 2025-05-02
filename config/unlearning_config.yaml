@@ -1,6 +1,6 @@
 task: unlearning
 
-model_name: ntrd # mlp hycorec kbrd bert gru4rec kgsf ntrd redial sasrec textcnn tgredial mhim rec
+model_name: gru4rec # mlp hycorec kbrd bert gru4rec kgsf ntrd redial sasrec textcnn tgredial mhim
 dataset_name: opendialkg # hredial htgredial opendialkg durecdial
 
 partition_methon: random # random
@@ -9,22 +9,22 @@ partition_mode: conv # user conv item entity word
 unlearning_layer:
   - [user, 8]
   - [conv, 8]
-  - [item, 128]
-  - [entity, 128]
-  - [word, 128]
+  - [item, 8]
+  - [entity, 8]
+  - [word, 8]
   - [item_hypergraph, 8]
   - [entity_hypergraph, 8]
   - [word_hypergraph, 8]
 unlearning_sample_methon: topk # random topk
 
 n_client_per_proc: 1
-n_proc: 8
-n_client: 8
+n_proc: 1
+n_client: 1
 
 aggregate_methon: mean # mean
 aggregate_rate: 0.0003
 
-epochs: 3
+epochs: 2
 batch_size: 16
 learning_rate: 0.01
 
@@ -62,7 +62,7 @@ model_config:
     num_hidden_layers: 2
 
   sasrec:
-    idden_dropout_prob: 0.2
+    hidden_dropout_prob: 0.2
     initializer_range: 0.02
     hidden_size: 50
     max_history_items: 100
@@ -72,7 +72,7 @@ model_config:
     num_hidden_layers: 2
 
   gru4rec:
-    gru_hidden_size: 10
+    gru_hidden_size: 256
     num_layers: 3
     embedding_dim: 256
     dropout_input: 0

@@ -24,24 +24,28 @@ class FedUnlWorker:
         os.environ["MASTER_ADDR"] = "localhost"
         os.environ["MASTER_PORT"] = "29500"
 
-        mp.spawn(
-            self.run_federate_unlearning,
-            args=(),
-            nprocs=self.config.n_proc,
-            join=True,
-        )
+        if self.config.n_client > 1:
+            mp.spawn(
+                self.run_federate_unlearning,
+                args=(),
+                nprocs=self.config.n_proc,
+                join=True,
+            )
+        else:
+            self.run_federate_unlearning(0)
 
         return
     
     def run_federate_unlearning(self, rank:int) -> None:
-        dist.init_process_group(
-            backend="nccl",
-            world_size=self.config.n_proc,
-            rank=rank,
-        )
+        if self.config.n_client > 1:
+            dist.init_process_group(
+                backend="nccl",
+                world_size=self.config.n_proc,
+                rank=rank,
+            )
 
         self.rank = rank
-        self.device = f"cuda:{rank}"
+        self.device = "cpu" # f"cuda:{rank}"
         self.client_ids = list(range(
             rank * self.config.n_client_per_proc,
             (rank + 1) * self.config.n_client_per_proc,
@@ -59,19 +63,26 @@ class FedUnlWorker:
             for (model, optimizer, dataloader) in zip(self.models, self.optims, self.dataloaders):
                 client_train_time = self.federate(model, optimizer, dataloader)
                 proc_train_time.append(client_train_time)
-            proc_train_time = torch.tensor(proc_train_time).to(self.device)
-            tot_train_time = [torch.zeros_like(proc_train_time).to(self.device) for _ in range(self.config.n_proc)]
-            dist.gather(proc_train_time, tot_train_time if self.rank == 0 else None, 0)
-            self.train_time = [tensor.item() for tensor in torch.concatenate(tot_train_time, dim=0).reshape(-1)]
+
+            if self.config.n_client > 1:
+                proc_train_time = torch.tensor(proc_train_time).to(self.device)
+                tot_train_time = [torch.zeros_like(proc_train_time).to(self.device) for _ in range(self.config.n_proc)]
+                dist.gather(proc_train_time, tot_train_time if self.rank == 0 else None, 0)
+                self.train_time = [tensor.item() for tensor in torch.concatenate(tot_train_time, dim=0).reshape(-1)]
+            else:
+                self.train_time = proc_train_time
 
             self.evaluate(mode="valid")
-            self.aggregate()
+            if self.config.n_client > 1:
+                self.aggregate()
             self.unlearning()
 
         self.evaluate(mode="test")
-        self.aggregate()
+        if self.config.n_client > 1:
+            self.aggregate()
 
-        dist.destroy_process_group()
+        if self.config.n_client > 1:
+            dist.destroy_process_group()
 
         return
     
@@ -110,7 +121,6 @@ class FedUnlWorker:
                 client_model = KBRDModel(
                     self.n_item, self.n_entity, self.n_word,
                     self.config.kbrd_config, self.device,
-                    self.entity_kg
                 ).to(self.device)
             elif self.config.model_name == "bert":
                 client_model = BERTModel(
@@ -131,7 +141,6 @@ class FedUnlWorker:
                 client_model = NTRDModel(
                     self.n_item, self.n_entity, self.n_word,
                     self.config.ntrd_config, self.device,
-                    self.entity_kg
                 ).to(self.device)
             elif self.config.model_name == "redial":
                 client_model = ReDialRecModel(
@@ -153,11 +162,10 @@ class FedUnlWorker:
                     self.n_item, self.n_entity, self.n_word,
                     self.config.tgredial_config, self.device,
                 ).to(self.device)
-                elif self.config.model_name == "mhim":
+            elif self.config.model_name == "mhim":
                 client_model = MHIMModel(
                     self.n_item, self.n_entity, self.n_word,
                     self.config.mhim_config, self.device,
-                    self.entity_kg
                 ).to(self.device)
             client_optimizer = torch.optim.Adam(
                 client_model.parameters(),
@@ -207,7 +215,7 @@ class FedUnlWorker:
         
         unlearning_result = {}
         for (layer, topk) in self.config.unlearning_layer:
-            [unlearning_clients, _, unlearning_maskk] = self.sampler.sample(layer, topk, self.config.unlearning_sample_methon)
+            unlearning_clients, _, unlearning_mask = self.sampler.sample(layer, topk, self.config.unlearning_sample_methon)
             unlearning_time = np.array([self.train_time[client_id] for client_id in unlearning_clients])
             unlearning_time_avg = float(unlearning_time.mean())
             unlearning_time_std = float(unlearning_time.std())
@@ -226,7 +234,6 @@ class FedUnlWorker:
         unlearning_df = pd.DataFrame(unlearning_df)
         print(unlearning_df)
 
-        unlearning_mask = unlearning_maskk
         return unlearning_mask
     
     def federate(self, model:torch.nn.Module, optimizer:torch.optim.Optimizer, dataloader:FedUnlDataLoader) -> float:
@@ -239,15 +246,19 @@ class FedUnlWorker:
         federate_time = perf_counter() - start_time
         return federate_time
     
-    def evaluate(self, mode:str, unlearning_mask:Dict) -> None:
+    def evaluate(self, mode:str, unlearning_mask:Dict=None) -> None:
         proc_evaluate_res = []
         for (model, dataloader) in zip(self.models, self.dataloaders):
             client_evaluate_res = self.evaluate_rec(model, dataloader, mode, unlearning_mask)
             proc_evaluate_res.append(client_evaluate_res)
-        proc_evaluate_res = torch.tensor(proc_evaluate_res).to(self.device)
-        tot_evaluate_res = [torch.zeros_like(proc_evaluate_res).to(self.device) for _ in range(self.config.n_proc)]
-        dist.gather(proc_evaluate_res, tot_evaluate_res if self.rank == 0 else None, 0)
-        evaluate_res = torch.concatenate(tot_evaluate_res, dim=0).reshape((self.config.n_client, -1)).detach().cpu().numpy()
+
+        if self.config.n_client > 1:
+            proc_evaluate_res = torch.tensor(proc_evaluate_res).to(self.device)
+            tot_evaluate_res = [torch.zeros_like(proc_evaluate_res).to(self.device) for _ in range(self.config.n_proc)]
+            dist.gather(proc_evaluate_res, tot_evaluate_res if self.rank == 0 else None, 0)
+            evaluate_res = torch.concatenate(tot_evaluate_res, dim=0).reshape((self.config.n_client, -1)).detach().cpu().numpy()
+        else:
+            evaluate_res = np.array(proc_evaluate_res)
 
         if self.rank == 0:
             evaluate_res_avg = evaluate_res.mean(0)
@@ -266,7 +277,7 @@ class FedUnlWorker:
                 print(evaluate_df)
         return
         
-    def evaluate_rec(self, model:torch.nn.Module, dataloader:FedUnlDataLoader, mode:str, unlearning_mask:Dict) -> List[float]:
+    def evaluate_rec(self, model:torch.nn.Module, dataloader:FedUnlDataLoader, mode:str, unlearning_mask:Dict=None) -> List[float]:
         for metrics in REC_METRIC_TABLE:
             for index in metrics:
                 metric = metrics[index]
