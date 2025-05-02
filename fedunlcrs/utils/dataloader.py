@@ -21,8 +21,6 @@ class FedUnlDataLoader:
         self.entity_edger = self.build_edger(raw_entity_edger, self.entity2id, self.n_entity)
         self.word_edger = self.build_edger(raw_word_edger, self.word2id, self.n_word)
 
-        self.processed_entity_kg = self._entity_kg_process()
-
         # build dataset
         self.train_dataset = self.build_dataset(raw_train_dataset)
         self.valid_dataset = self.build_dataset(raw_valid_dataset)
@@ -36,12 +34,10 @@ class FedUnlDataLoader:
         self.item2id = json.load(open(os.path.join("data", self.dataset_name, "entity2id.json"), "r", encoding="utf-8"))
         self.entity2id = json.load(open(os.path.join("data", self.dataset_name, "entity2id.json"), "r", encoding="utf-8"))
         self.word2id = json.load(open(os.path.join("data", self.dataset_name, "token2id.json"), "r", encoding="utf-8"))
-        self.entity_kg = open("data/opendialkg/opendialkg_subkg.txt", "r", encoding="utf-8")
-        self.id2entity = {idx: entity for entity, idx in self.entity2id.items()}
 
-        self.n_item = len(self.item2id) + 1
-        self.n_entity = len(self.entity2id) + 1
-        self.n_word = len(self.word2id)
+        self.n_item = max([self.item2id[key] for key in self.item2id]) + 1
+        self.n_entity = max([self.entity2id[key] for key in self.entity2id]) + 1
+        self.n_word = max([self.word2id[key] for key in self.word2id]) + 1
         return (raw_train_dataset, raw_valid_dataset, raw_test_dataset), (raw_item_edger, raw_entity_edger, raw_word_edger)
     
     def build_edger(self, raw_edger:Dict[str, str], str2id_dict:Dict, n:int) -> List[List[int]]:
@@ -159,49 +155,3 @@ class FedUnlDataLoader:
         # }
 
         return batch_data
-
-    def _entity_kg_process(self):
-        edge_list = []  # [(entity, entity, relation)]
-        for line in self.entity_kg:
-            triple = line.strip().split('\t')
-            if len(triple) != 3 or triple[0] not in self.entity2id or triple[2] not in self.entity2id:
-                continue
-            e0 = self.entity2id[triple[0]]
-            e1 = self.entity2id[triple[2]]
-            r = triple[1]
-            edge_list.append((e0, e1, r))
-            # edge_list.append((e1, e0, r))
-            edge_list.append((e0, e0, 'SELF_LOOP'))
-            if e1 != e0:
-                edge_list.append((e1, e1, 'SELF_LOOP'))
-
-        relation_cnt, relation2id, edges, entities = defaultdict(int), dict(), set(), set()
-        for h, t, r in edge_list:
-            relation_cnt[r] += 1
-        for h, t, r in edge_list:
-            if relation_cnt[r] > 20000:
-                if r not in relation2id:
-                    relation2id[r] = len(relation2id)
-                edges.add((h, t, relation2id[r]))
-                entities.add(self.id2entity[h])
-                entities.add(self.id2entity[t])
-
-        word_edges = set()  # {(entity, entity)}
-        word_entities = set()
-        for line in self.entity_kg:
-            triple = line.strip().split('\t')
-            word_entities.add(triple[0])
-            word_entities.add(triple[2])
-            e0 = self.word2id[triple[0]]
-            e1 = self.word2id[triple[2]]
-            word_edges.add((e0, e1))
-            word_edges.add((e1, e0))
-        # edge_set = [[co[0] for co in list(edges)], [co[1] for co in list(edges)]]
-
-        return {
-            'word_edge': list(word_edges),
-            'word_entity': list(word_entities),
-            'edge': list(edges),
-            'n_relation': len(relation2id),
-            'entity': list(entities)
-        }

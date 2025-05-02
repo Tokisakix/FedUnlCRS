@@ -250,17 +250,11 @@ class FedUnlWorker:
                 "Std": float(unlearning_time.std())
             }
 
-        layers = [layer for (layer, topk) in self.config.unlearning_layer]
-        unlearning_df = {"/": ["Avg", "Std"]}
+        layers = [layer for (layer, _) in self.config.unlearning_layer]
         for layer in layers:
-            unlearning_df[layer] = [
-                f"{unlearning_result[layer]['Avg']:.4f}s",
-                f"{unlearning_result[layer]['Std']:.4f}s",
-            ]
             time_entry[layer]["time_avg"] = unlearning_result[layer]["Avg"]
             time_entry[layer]["time_std"] = unlearning_result[layer]["Std"]
         
-        print(pd.DataFrame(unlearning_df))
         os.makedirs(self.config.evaluate_path, exist_ok=True)
         save_path = os.path.join(self.config.evaluate_path, "test_evaluation_result.json")
         if os.path.exists(save_path) and os.path.getsize(save_path) > 0:

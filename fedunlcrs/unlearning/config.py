@@ -26,7 +26,7 @@ class FedUnlConfig:
         self.epochs = args["epochs"]
         self.batch_size = args["batch_size"]
         self.learning_rate = args["learning_rate"]
-        self.emb_dim = 256
+        self.emb_dim = args["model_config"]["hycorec"]["emb_dim"]
 
         self.load_path = os.path.join(
             "save", "partition",
@@ -34,11 +34,11 @@ class FedUnlConfig:
         )
         self.save_path = os.path.join(
             "save", "unlearning",
-            f"{self.model_name}_{self.unlearning_sample_methon}_{self.dataset_name}_{self.partition_methon}_{self.n_client}"
+            f"{self.model_name}_{self.dataset_name}_{self.unlearning_sample_methon}_{self.ablation_layer}_{self.n_client}_{self.emb_dim}_{self.aggregate_rate}"
         )
         self.evaluate_path = os.path.join(
             "save", "evaluate",
-            f"{self.model_name}_{self.dataset_name}_{self.n_client}"
+            f"{self.model_name}_{self.dataset_name}_{self.unlearning_sample_methon}_{self.ablation_layer}_{self.n_client}_{self.emb_dim}_{self.aggregate_rate}"
         )
 
         self.load_random_config(args)

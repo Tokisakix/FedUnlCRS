@@ -1,5 +1,8 @@
-# TODO!
-# Automatic CRS Test
+import subprocess
+
+PYTHON = R"C:\Users\Terox\.conda\envs\FedUnlCRS\python.exe"
+PARTITION_CONFIG  = R"config\partition_config.yaml"
+UNLEARNING_CONFIG = R"config\unlearning_config.yaml"
 
 MODELS = ["mlp", "hycorec", "kbrd", "bert", "gru4rec", "kgsf", "ntrd", "redial", "sasrec", "textcnn", "tgredial", "mhim", "rec"]
 DATASETS = ["opendialkg", "durecdial", "hredial", "htgredial"]
@@ -15,3 +18,32 @@ UNLEARNING_LAYERS = ["user", "conv", "item", "entity", "word", "item_hypergraph"
 N_CLIENTS = [4, 8, 16, 32]
 EMBEDDING_DIM = [32, 64, 128, 256]
 AGGREGATE_RATE = [0.005, 0.001, 0.0005, 0.0001]
+
+def run_cmd(command:str):
+    process = subprocess.Popen(
+        command,
+    )
+    process.communicate()
+    return
+
+def run_all_partition():
+    for dataset in DATASETS:
+        for n_client in N_CLIENTS:
+            command = f"{PYTHON} main.py --config {PARTITION_CONFIG} --dataset {dataset} --n_client {n_client}"
+            print("[SCRIPT]", command)
+            run_cmd(command)
+    return
+
+def run_all_model():
+    for model in MODELS:
+        for dataset in DATASETS:
+            for methon in METHONS:
+                command = f"{PYTHON} main.py --config {UNLEARNING_CONFIG} --model {model} --dataset {dataset} --methon {methon}"
+                print("[SCRIPT]", command)
+                run_cmd(command)
+    return
+
+if __name__ == "__main__":
+    # run_all_partition()
+    run_all_model()
+    exit(0)

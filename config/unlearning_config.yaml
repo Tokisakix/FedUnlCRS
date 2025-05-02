@@ -20,13 +20,13 @@ unlearning_sample_methon: topk # random topk
 ablation_layer: null
 
 n_client_per_proc: 1
-n_proc: 8
-n_client: 8
+n_proc: 1
+n_client: 1
 
 aggregate_methon: mean # mean
 aggregate_rate: 0.0003
 
-epochs: 2
+epochs: 1
 batch_size: 16
 learning_rate: 0.01
 
