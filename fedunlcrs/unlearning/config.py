@@ -45,8 +45,16 @@ class FedUnlConfig:
     
     def load_model_config(self, args:Dict) -> None:
         model_config = args["model_config"]
-
         self.mlp_config = model_config["mlp"]
-
         self.hycorec_config = model_config["hycorec"]
+        self.kbrd_config = model_config["kbrd"]
+        self.bert_config = model_config["bert"]
+        self.gru4rec_config = model_config["gru4rec"]
+        self.kgsf_config = model_config["kgsf"]
+        self.ntrd_config = model_config["ntrd"]
+        self.redial_config = model_config["redial"]
+        self.sasrec_config = model_config["sasrec"]
+        self.textcnn_config = model_config["textcnn"]
+        self.tgredial_config = model_config["tgredial"]
+        self.mhim_config = model_config["mhim"]
         return

@@ -15,6 +15,7 @@ from .config import FedUnlConfig
 from .sampler import GraphUnlSampler
 from fedunlcrs.utils import FedUnlDataLoader, REC_METRIC_TABLE
 from fedunlcrs.model import FedUnlMlp, HyCoRec
+from fedunlcrs.baseline import KBRDModel, BERTModel, GRU4RECModel, KGSFModel, NTRDModel, ReDialRecModel, TGRecModel, SASRECModel, TextCNNModel, MHIMModel
 
 class FedUnlWorker:
     def __init__(self, config:FedUnlConfig) -> None:
@@ -104,6 +105,59 @@ class FedUnlWorker:
                 client_model = HyCoRec(
                     self.n_item, self.n_entity, self.n_word,
                     self.config.hycorec_config, self.device,
+                ).to(self.device)
+            elif self.config.model_name == "kbrd":
+                client_model = KBRDModel(
+                    self.n_item, self.n_entity, self.n_word,
+                    self.config.kbrd_config, self.device,
+                    self.entity_kg
+                ).to(self.device)
+            elif self.config.model_name == "bert":
+                client_model = BERTModel(
+                    self.n_item, self.n_entity, self.n_word,
+                    self.config.bert_config, self.device,
+                ).to(self.device)
+            elif self.config.model_name == "gru4rec":
+                client_model = GRU4RECModel(
+                    self.n_item, self.n_entity, self.n_word,
+                    self.config.gru4rec_config, self.device,
+                ).to(self.device)
+            elif self.config.model_name == "kgsf":
+                client_model = KGSFModel(
+                    self.n_item, self.n_entity, self.n_word,
+                    self.config.kgsf_config, self.device,
+                ).to(self.device)
+            elif self.config.model_name == "ntrd":
+                client_model = NTRDModel(
+                    self.n_item, self.n_entity, self.n_word,
+                    self.config.ntrd_config, self.device,
+                    self.entity_kg
+                ).to(self.device)
+            elif self.config.model_name == "redial":
+                client_model = ReDialRecModel(
+                    self.n_item, self.n_entity, self.n_word,
+                    self.config.redial_config, self.device,
+                ).to(self.device)
+            elif self.config.model_name == "sasrec":
+                client_model = SASRECModel(
+                    self.n_item, self.n_entity, self.n_word,
+                    self.config.sasrec_config, self.device,
+                ).to(self.device)
+            elif self.config.model_name == "textcnn":
+                client_model = TextCNNModel(
+                    self.n_item, self.n_entity, self.n_word,
+                    self.config.textcnn_config, self.device,
+                ).to(self.device)
+            elif self.config.model_name == "tgredial":
+                client_model = TGRecModel(
+                    self.n_item, self.n_entity, self.n_word,
+                    self.config.tgredial_config, self.device,
+                ).to(self.device)
+                elif self.config.model_name == "mhim":
+                client_model = MHIMModel(
+                    self.n_item, self.n_entity, self.n_word,
+                    self.config.mhim_config, self.device,
+                    self.entity_kg
                 ).to(self.device)
             client_optimizer = torch.optim.Adam(
                 client_model.parameters(),
