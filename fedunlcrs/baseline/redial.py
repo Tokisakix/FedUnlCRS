@@ -1,7 +1,7 @@
 import torch.nn as nn
 from typing import Dict, List
 import torch
-
+import torch.nn.functional as F
 
 class ReDialRecModel(torch.nn.Module):
     """
@@ -14,37 +14,34 @@ class ReDialRecModel(torch.nn.Module):
     """
 
     def __init__(self, n_item:int, n_entity:int, n_word:int, model_config:Dict, device:str):
-        """
-
-        Args:
-            opt (dict): A dictionary record the hyper parameters.
-            device (torch.device): A variable indicating which device to place the data and model.
-            vocab (dict): A dictionary record the vocabulary information.
-            side_data (dict): A dictionary record the side data.
-
-        """
         super(ReDialRecModel, self).__init__()
+        self.device = device
         self.n_entity = n_entity
         self.layer_sizes = model_config['autorec_layer_sizes']
         self.pad_entity_idx = 0
+        self.autorec_f = model_config['autorec_f']
+        self.autorec_g = model_config['autorec_g']
+        self.emb_dim = model_config["emb_dim"]
+        self.n_item = n_item
+        self.build_model()
 
 
     def build_model(self):
         # AutoRec
-        if self.opt['autorec_f'] == 'identity':
+        if self.autorec_f == 'identity':
             self.f = lambda x: x
-        elif self.opt['autorec_f'] == 'sigmoid':
+        elif self.autorec_f == 'sigmoid':
             self.f = nn.Sigmoid()
-        elif self.opt['autorec_f'] == 'relu':
+        elif self.autorec_f == 'relu':
             self.f = nn.ReLU()
         else:
             raise ValueError("Got invalid function name for f : {}".format(self.opt['autorec_f']))
 
-        if self.opt['autorec_g'] == 'identity':
+        if self.autorec_g == 'identity':
             self.g = lambda x: x
-        elif self.opt['autorec_g'] == 'sigmoid':
+        elif self.autorec_g == 'sigmoid':
             self.g = nn.Sigmoid()
-        elif self.opt['autorec_g'] == 'relu':
+        elif self.autorec_g == 'relu':
             self.g = nn.ReLU()
         else:
             raise ValueError("Got invalid function name for g : {}".format(self.opt['autorec_g']))
@@ -55,6 +52,9 @@ class ReDialRecModel(torch.nn.Module):
         self.user_repr_dim = self.layer_sizes[-1]
         self.decoder = nn.Linear(self.user_repr_dim, self.n_entity)
         self.loss = nn.CrossEntropyLoss()
+        self.rec_bias = torch.nn.Linear(self.emb_dim, self.n_entity)
+        self.entity_embedding = torch.nn.Embedding(self.n_item, self.emb_dim, 0)
+        self.item_embedding = torch.nn.Embedding(self.n_item, self.emb_dim, 0)
 
     def rec_forward(self, batch_data:List[Dict], item_edger:Dict, entity_edger:Dict, word_edger:Dict):
         """
@@ -72,9 +72,22 @@ class ReDialRecModel(torch.nn.Module):
         """
         related_entity = [meta_data["entity"] for meta_data in batch_data]
         related_item = [meta_data["item"] for meta_data in batch_data]
-        for i, layer in enumerate(self.encoder):
-            related_entity = self.f(layer(related_entity))
-        scores = self.g(self.decoder(related_entity))
-        loss = self.loss(scores, related_item)
+        labels = torch.LongTensor([meta_data["label"] for meta_data in batch_data]).to(self.device)
 
-        return scores, loss, loss
+        entity_embedding = []
+        item_embedding = []
+        for entity_list, item_list in zip(related_entity, related_item):
+            entity_tensor = torch.LongTensor(entity_list).to(self.device)
+            entity_repr = self.entity_embedding(entity_tensor).mean(dim=0, keepdim=True)
+            entity_embedding.append(entity_repr)
+
+            item_tensor = torch.LongTensor(item_list).to(self.device)
+            item_repr = self.item_embedding(item_tensor).mean(dim=0, keepdim=True)
+            item_embedding.append(item_repr)
+
+        entity_embedding = torch.concatenate(entity_embedding, dim=0)
+        item_embedding = torch.concatenate(item_embedding, dim=0)
+        combined_embedding = (entity_embedding + item_embedding) / 2
+        logits = self.decoder(combined_embedding)
+        loss = self.loss(logits, labels)
+        return logits, labels, loss
