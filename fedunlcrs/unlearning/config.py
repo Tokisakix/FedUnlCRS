@@ -14,6 +14,8 @@ class FedUnlConfig:
         self.unlearning_layer = args["unlearning_layer"]
         self.unlearning_sample_methon = args["unlearning_sample_methon"]
 
+        self.ablation_layer = args["ablation_layer"]
+
         self.n_client_per_proc = args["n_client_per_proc"]
         self.n_proc = args["n_proc"]
         self.n_client = args["n_client"]

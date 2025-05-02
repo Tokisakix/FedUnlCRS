@@ -38,7 +38,7 @@ class SelfAttentionBatch(nn.Module):
     
 class KBRDModel(torch.nn.Module):
 
-    def __init__(self, n_item:int, n_entity:int, n_word:int, model_config:Dict, device:str, processed_entity_kg):
+    def __init__(self, n_item:int, n_entity:int, n_word:int, model_config:Dict, device:str):
         super(KBRDModel, self).__init__()
         self.device = device
         # vocab
@@ -49,10 +49,6 @@ class KBRDModel(torch.nn.Module):
         self.token_emb_dim = model_config["emb_dim"] #dim
         # kg
         self.n_entity = n_entity
-        self.n_relation = processed_entity_kg['n_relation'] #entitykg
-        self.edge_idx, self.edge_type = edge_to_pyg_format(processed_entity_kg['edge'], 'RGCN')
-        self.edge_idx = self.edge_idx.to(device)
-        self.edge_type = self.edge_type.to(device)
         self.num_bases = model_config["num_bases"]
         self.kg_emb_dim = model_config["emb_dim"]
         self.user_emb_dim = self.kg_emb_dim
@@ -71,7 +67,7 @@ class KBRDModel(torch.nn.Module):
         return
 
     def _build_kg_layer(self):
-        self.kg_encoder = RGCNConv(self.n_entity, self.kg_emb_dim, self.n_relation, num_bases=self.num_bases)
+        # self.kg_encoder = RGCNConv(self.n_entity, self.kg_emb_dim, self.n_relation, num_bases=self.num_bases)
         self.kg_attn = SelfAttentionBatch(self.kg_emb_dim, self.kg_emb_dim)
         logger.debug('[Build kg layer]')
 

@@ -20,6 +20,7 @@ from fedunlcrs.baseline import KBRDModel, BERTModel, GRU4RECModel, KGSFModel, NT
 class FedUnlWorker:
     def __init__(self, config:FedUnlConfig) -> None:
         self.config = config
+
         os.environ["MASTER_ADDR"] = "localhost"
         os.environ["MASTER_PORT"] = "29500"
 
@@ -56,22 +57,6 @@ class FedUnlWorker:
 
         self.build_loader()
         self.build_model()
-        self.full_data = {
-            "model": self.config.model_name,
-            "dataset": getattr(self.dataloaders[0], "dataset_name", "unknown"),
-            "ablation_layer": getattr(self.config, "ablation_layer", None),
-            "unlearning_methon": getattr(self.config, "unlearning_methon", None),
-            "unlearning_num": getattr(self.config, "unlearning_num", None),
-            "hyper_parameters": {
-                "n_clients": self.config.n_client,
-                "embedding_dim": self.config.emb_dim,
-                "aggregate_rate": self.config.aggregate_rate
-            },
-            "evaluate_rec": [],
-            "evaluate_cov": [],
-            "unlearning_time": []
-        }
-
 
         for epoch in range(self.config.epochs):
             proc_train_time = []
@@ -90,9 +75,11 @@ class FedUnlWorker:
             self.evaluate(mode="valid")
             if self.config.n_client > 1:
                 self.aggregate()
-            self.unlearning()
+            unlearning_mask = self.unlearning()
+            self.evaluate(mode="valid", unlearning_mask=unlearning_mask)
 
         self.evaluate(mode="test")
+        self.evaluate(mode="test", unlearning_mask=unlearning_mask)
         if self.config.n_client > 1:
             self.aggregate()
 
@@ -228,28 +215,17 @@ class FedUnlWorker:
         if self.rank != 0:
             return
         
-        time_entry = {
-            "epoch": self.config.epochs,
-            "user": {"time_avg": 0.0, "time_std": 0.0},
-            "conv": {"time_avg": 0.0, "time_std": 0.0},
-            "item": {"time_avg": 0.0, "time_std": 0.0},
-            "entity": {"time_avg": 0.0, "time_std": 0.0},
-            "word": {"time_avg": 0.0, "time_std": 0.0},
-            "item_hypergraph": {"time_avg": 0.0, "time_std": 0.0},
-            "entity_hypergraph": {"time_avg": 0.0, "time_std": 0.0},
-            "word_hypergraph": {"time_avg": 0.0, "time_std": 0.0}
-        }
-
         unlearning_result = {}
         for (layer, topk) in self.config.unlearning_layer:
-            unlearning_clients, _, unlearning_mask = self.sampler.sample(
-                layer, topk, self.config.unlearning_sample_methon)
+            unlearning_clients, _, unlearning_mask = self.sampler.sample(layer, topk, self.config.unlearning_sample_methon)
             unlearning_time = np.array([self.train_time[client_id] for client_id in unlearning_clients])
+            unlearning_time_avg = float(unlearning_time.mean())
+            unlearning_time_std = float(unlearning_time.std())
             unlearning_result[layer] = {
-                "Avg": float(unlearning_time.mean()),
-                "Std": float(unlearning_time.std())
+                "Avg": unlearning_time_avg,
+                "Std": unlearning_time_std,
             }
-
+        
         layers = [layer for (layer, topk) in self.config.unlearning_layer]
         unlearning_df = {"/": ["Avg", "Std"]}
         for layer in layers:
@@ -257,35 +233,8 @@ class FedUnlWorker:
                 f"{unlearning_result[layer]['Avg']:.4f}s",
                 f"{unlearning_result[layer]['Std']:.4f}s",
             ]
-            time_entry[layer]["time_avg"] = unlearning_result[layer]["Avg"]
-            time_entry[layer]["time_std"] = unlearning_result[layer]["Std"]
-        
-        print(pd.DataFrame(unlearning_df))
-        os.makedirs(self.config.evaluate_path, exist_ok=True)
-        save_path = os.path.join(self.config.evaluate_path, "test_evaluation_result.json")
-        if os.path.exists(save_path) and os.path.getsize(save_path) > 0:
-                with open(save_path, "r") as f:
-                 full_data = json.load(f)
-        else:
-            full_data = {
-                "model": self.config.model_name,
-                "dataset": getattr(self.dataloaders[0], "dataset_name", "unknown"),
-                "ablation_layer": getattr(self.config, "ablation_layer", None),
-                "unlearning_methon": getattr(self.config, "unlearning_methon", None),
-                "unlearning_num": getattr(self.config, "unlearning_num", None),
-                "hyper_parameters": {
-                    "n_clients": self.config.n_client,
-                    "embedding_dim": self.config.emb_dim,
-                    "aggregate_rate": self.config.aggregate_rate
-                },
-                "evaluate_rec": {},
-                "evaluate_cov": {},
-                "unlearning_time": {}
-            }
-        full_data["unlearning_time"]= time_entry
-
-        with open(save_path, "w") as f:
-            json.dump(full_data, f, indent=4)
+        unlearning_df = pd.DataFrame(unlearning_df)
+        print(unlearning_df)
 
         return unlearning_mask
     
@@ -299,79 +248,36 @@ class FedUnlWorker:
         federate_time = perf_counter() - start_time
         return federate_time
     
-    def evaluate(self, mode: str, unlearning_mask: Dict = None, unlearning: bool = False) -> None:
+    def evaluate(self, mode:str, unlearning_mask:Dict=None) -> None:
         proc_evaluate_res = []
-
-        for model, dataloader in zip(self.models, self.dataloaders):
-            client_result = self.evaluate_rec(model, dataloader, mode, unlearning_mask)
-            proc_evaluate_res.append(client_result)
+        for (model, dataloader) in zip(self.models, self.dataloaders):
+            client_evaluate_res = self.evaluate_rec(model, dataloader, mode, unlearning_mask)
+            proc_evaluate_res.append(client_evaluate_res)
 
         if self.config.n_client > 1:
             proc_evaluate_res = torch.tensor(proc_evaluate_res).to(self.device)
-            gathered = [torch.zeros_like(proc_evaluate_res).to(self.device) for _ in range(self.config.n_proc)]
-            dist.gather(proc_evaluate_res, gathered if self.rank == 0 else None, dst=0)
-
-            if self.rank != 0:
-                return
-
-            evaluate_res = torch.cat(gathered, dim=0).reshape((self.config.n_client, -1)).cpu().numpy()
+            tot_evaluate_res = [torch.zeros_like(proc_evaluate_res).to(self.device) for _ in range(self.config.n_proc)]
+            dist.gather(proc_evaluate_res, tot_evaluate_res if self.rank == 0 else None, 0)
+            evaluate_res = torch.concatenate(tot_evaluate_res, dim=0).reshape((self.config.n_client, -1)).detach().cpu().numpy()
         else:
             evaluate_res = np.array(proc_evaluate_res)
 
         if self.rank == 0:
-            evaluate_res_avg = evaluate_res.mean(axis=0)
-            evaluate_res_std = evaluate_res.std(axis=0)
+            evaluate_res_avg = evaluate_res.mean(0)
+            evaluate_res_std = evaluate_res.std(0)
 
-            rec_task = {}
-            fairness_aware = {}
             metric_idx = 0
-
-            for metric_group in REC_METRIC_TABLE:
-                for metric_name in metric_group.keys():
-                    value = round(float(evaluate_res_avg[metric_idx]), 4)
-                    if any(prefix in metric_name for prefix in ['APR', 'LTR', 'Cov', 'Gini', 'KL', 'Diff']):
-                        fairness_aware[metric_name] = value
-                    else:
-                        rec_task[metric_name] = value
+            for metrics in REC_METRIC_TABLE:
+                evaluate_df = {"/": ["Avg", "Std"]}
+                for metric in metrics.keys():
+                    evaluate_df[metric] = [
+                        f"{evaluate_res_avg[metric_idx]:.4f}",
+                        f"{evaluate_res_std[metric_idx]:.4f}",
+                    ]
                     metric_idx += 1
-
-            result_entry = {
-                "epoch": self.config.epochs,
-                "mode": mode,
-                "unlearning": unlearning,
-                "rec_task": rec_task,
-                "fairness_aware": fairness_aware
-            }
-
-            os.makedirs(self.config.evaluate_path, exist_ok=True)
-            save_path = os.path.join(self.config.evaluate_path, f"{mode}_evaluation_result.json")
-
-            if os.path.exists(save_path) and os.path.getsize(save_path) > 0:
-                with open(save_path, "r") as f:
-                 full_data = json.load(f)
-            else:
-                full_data = {
-                    "model": self.config.model_name,
-                    "dataset": getattr(self.dataloaders[0], "dataset_name", "unknown"),
-                    "ablation_layer": getattr(self.config, "ablation_layer", None),
-                    "unlearning_methon": getattr(self.config, "unlearning_methon", None),
-                    "unlearning_num": getattr(self.config, "unlearning_num", None),
-                    "hyper_parameters": {
-                        "n_clients": self.config.n_client,
-                        "embedding_dim": self.config.emb_dim,
-                        "aggregate_rate": self.config.aggregate_rate
-                    },
-                    "evaluate_rec": {},
-                    "evaluate_cov": {},
-                    "unlearning_time": {}
-                }
-
-            full_data["evaluate_rec"]= result_entry
-
-            with open(save_path, "w") as f:
-                json.dump(full_data, f, indent=4)
-
-            print(f"Evaluation result saved to {save_path}")
+                evaluate_df = pd.DataFrame(evaluate_df)
+                print(evaluate_df)
+        return
         
     def evaluate_rec(self, model:torch.nn.Module, dataloader:FedUnlDataLoader, mode:str, unlearning_mask:Dict=None) -> List[float]:
         for metrics in REC_METRIC_TABLE:

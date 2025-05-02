@@ -15,17 +15,17 @@ class BERTModel(torch.nn.Module):
 
     def __init__(self, n_item:int, n_entity:int, n_word:int, model_config:Dict, device:str):
         super(BERTModel, self).__init__()
-        self.item_size = n_entity
+        self.n_item = n_item
         self.max_seq_length = model_config["max_history_items"]
         self.device = device
         self.build_model()
 
     def build_model(self):
         # build BERT layer, give the architecture, load pretrained parameters
-        config = BertConfig()  # 用默认配置，或者自定义
+        config = BertConfig(vocab_size=self.n_item)  # 用默认配置，或者自定义
         self.bert = BertModel(config)  # 随机初始化
         self.bert_hidden_size = self.bert.config.hidden_size
-        self.mlp = nn.Linear(self.bert_hidden_size, self.item_size)
+        self.mlp = nn.Linear(self.bert_hidden_size, self.n_item)
 
         # this loss may conduct to some weakness
         self.rec_loss = nn.CrossEntropyLoss()
@@ -55,11 +55,12 @@ class BERTModel(torch.nn.Module):
         context = input_ids.clone()
         mask = input_mask.clone()
         bert_embed = self.bert(context, attention_mask=mask).pooler_output
-        sequence_output = self.SASREC(input_ids, input_mask)
-        sas_embed = sequence_output[:, -1, :]
+        # sequence_output = self.SASREC(input_ids, input_mask)
+        # sas_embed = sequence_output[:, -1, :]
 
-        embed = torch.cat((sas_embed, bert_embed), dim=1)
-        rec_scores = self.fusion(embed)
+        # embed = torch.cat((sas_embed, bert_embed), dim=1)
+        embed = bert_embed
+        rec_scores = self.mlp(embed)
 
         rec_loss = self.rec_loss(rec_scores, labels)
 

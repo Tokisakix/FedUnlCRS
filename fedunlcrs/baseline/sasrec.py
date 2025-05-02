@@ -1,7 +1,7 @@
 import torch
 from loguru import logger
 from torch import nn
-from .Rec import SASREC
+from .rec import SASREC
 from typing import Dict, List
 
 class SASRECModel(torch.nn.Module):
@@ -31,6 +31,7 @@ class SASRECModel(torch.nn.Module):
         self.attention_probs_dropout_prob = model_config['attention_probs_dropout_prob']
         self.hidden_act = model_config['hidden_act']
         self.num_hidden_layers = model_config['num_hidden_layers']
+        self.device = device
         self.build_model()
 
     def build_model(self):
@@ -41,41 +42,12 @@ class SASRECModel(torch.nn.Module):
                              self.num_attention_heads,
                              self.attention_probs_dropout_prob,
                              self.hidden_act, self.num_hidden_layers)
+        self.mlp = nn.Linear(self.hidden_size, self.item_size)
 
         # this loss may conduct to some weakness
         self.rec_loss = nn.CrossEntropyLoss()
 
         logger.debug('[Finish build rec layer]')
-
-    def rec_forward(self, batch, mode):
-        context, mask, input_ids, target_pos, input_mask, sample_negs, y = batch
-        # print(input_ids.shape)
-        sequence_output = self.SASREC(input_ids, input_mask)  # bs, max_len, hidden_size2
-
-        logit = sequence_output[:, -1:, :]
-        rec_scores = torch.matmul(logit, self.SASREC.embeddings.item_embeddings.weight.data.T)
-        rec_scores = rec_scores.squeeze(1)
-        # print('rec_scores.shape', rec_scores.shape)
-
-        rec_loss = self.SASREC.cross_entropy(sequence_output, target_pos,
-                                             sample_negs)
-
-        return rec_loss, rec_scores
-    
-
-    def rec_forward(self, batch_data:List[Dict], item_edger:Dict, entity_edger:Dict, word_edger:Dict):
-        context, mask, input_ids, input_mask, labels = batch_data
-
-        bert_embed = self.bert(context, attention_mask=mask).pooler_output
-
-        sequence_output = self.SASREC(input_ids, input_mask)  # bs, max_len, hidden_size2
-        sas_embed = sequence_output[:, -1, :]  # bs, hidden_size2
-
-        embed = torch.cat((sas_embed, bert_embed), dim=1)
-        rec_scores = self.fusion(embed)  # bs, item_size
-
-        rec_loss = self.rec_loss(rec_scores, labels)
-        return rec_scores, rec_scores, rec_loss
     
     def rec_forward(self, batch_data:List[Dict], item_edger:Dict, entity_edger:Dict, word_edger:Dict):
         input_ids, input_mask, labels = [], [], []
@@ -99,12 +71,12 @@ class SASRECModel(torch.nn.Module):
 
         context = input_ids.clone()
         mask = input_mask.clone()
-        bert_embed = self.bert(context, attention_mask=mask).pooler_output
+        # bert_embed = self.bert(context, attention_mask=mask).pooler_output
         sequence_output = self.SASREC(input_ids, input_mask)
         sas_embed = sequence_output[:, -1, :]
 
-        embed = torch.cat((sas_embed, bert_embed), dim=1)
-        rec_scores = self.fusion(embed)
+        # embed = torch.cat((sas_embed, bert_embed), dim=1)
+        rec_scores = self.mlp(sas_embed)
 
         rec_loss = self.rec_loss(rec_scores, labels)
 

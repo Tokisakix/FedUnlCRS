@@ -32,13 +32,14 @@ class GRU4RECModel(torch.nn.Module):
         """
         super(GRU4RECModel, self).__init__()
         self.device = device
-        self.item_size = n_entity + 1
+        self.item_size = n_item
         self.hidden_size = model_config['gru_hidden_size']
         self.num_layers = model_config['num_layers']
         self.dropout_hidden = model_config['dropout_hidden']
         self.dropout_input = model_config['dropout_input']
         self.embedding_dim = model_config['embedding_dim']
         self.batch_size = model_config['batch_size']
+        self.max_seq_length = 100
         self.build_model()
 
     def build_model(self):
@@ -48,6 +49,7 @@ class GRU4RECModel(torch.nn.Module):
                           self.num_layers,
                           dropout=self.dropout_hidden,
                           batch_first=True)
+        self.rec_linear = torch.nn.Linear(in_features=self.embedding_dim, out_features=self.item_size)
 
         logger.debug('[Finish build rec layer]')
 
@@ -98,36 +100,47 @@ class GRU4RECModel(torch.nn.Module):
 
         return loss
 
-    #TODO! 5 arguments
-    def rec_forward(self, batch, mode):
+    def rec_forward(self, batch, item_edger, entity_edger, word_edger):
         """
         Args:
             input_ids: padding in left, [pad, pad, id1, id2, ..., idn]
             target_ids: padding in left, [pad, pad, id2, id3, ..., y]
         """
-        context, mask, input_ids, target_pos, input_mask, sample_negs, y = batch
+        input_ids, input_mask, labels = [], [], []
+
+        for meta_data in batch:
+            item_seq = meta_data["item"]
+            if len(item_seq) > self.max_seq_length:
+                item_seq = item_seq[-self.max_seq_length:]
+            padding_len = self.max_seq_length - len(item_seq)
+            input_id = item_seq + [0] * padding_len
+            mask = [1] * len(item_seq) + [0] * padding_len
+            label = meta_data["label"]
+
+            input_ids.append(input_id)
+            input_mask.append(mask)
+            labels.append(label)
+
+        input_ids = torch.LongTensor(input_ids).to(self.device)         # (batch_size, max_seq_len)
+        input_mask = torch.LongTensor(input_mask).to(self.device)       # (batch_size, max_seq_len)
+        labels = torch.LongTensor(labels).to(self.device)               # (batch_size,)
+
+        context = input_ids.clone()
 
         input_ids, input_len, input_mask = self.reconstruct_input(input_ids)
-        target_pos, _, _ = self.reconstruct_input(target_pos)
-        sample_negs, _, _ = self.reconstruct_input(sample_negs)
-        embedded = self.item_embeddings(input_ids)  # (batch, seq_len, hidden_size)
-        input_len = [len_ if len_ > 0 else 1 for len_ in input_len]
-        embedded = pack_padded_sequence(
-            embedded, input_len, enforce_sorted=False,
-            batch_first=True)  # (num_layers , batch, hidden_size)
 
+        embedded = self.item_embeddings(context)  # (batch, seq_len, hidden_size)
         output, hidden = self.gru(embedded)
-        output, output_len = pad_packed_sequence(output, batch_first=True)
+        # output, output_len = pad_packed_sequence(output, batch_first=True)
 
         batch, seq_len, hidden_size = output.size()
         logit = output.view(batch, seq_len, hidden_size)
 
         last_logit = logit[:, -1, :]
-        rec_scores = torch.matmul(last_logit, self.item_embeddings.weight.data.T)
+        rec_scores = torch.nn.functional.linear(last_logit, self.item_embeddings.weight, self.rec_linear.bias)
         rec_scores = rec_scores.squeeze(1)
 
-        max_out_len = max([len_ for len_ in output_len])
-        rec_loss = self.cross_entropy(logit, target_pos[:, :max_out_len],
-                                      sample_negs[:, :max_out_len], input_mask)
+        # max_out_len = max([len_ for len_ in output_len])
+        rec_loss = torch.nn.functional.cross_entropy(rec_scores, labels)
 
-        return rec_scores, rec_scores, rec_loss
+        return rec_scores, labels, rec_loss

@@ -27,11 +27,12 @@ class TextCNNModel(torch.nn.Module):
 
         """
         super(TextCNNModel, self).__init__()
-        self.movie_num = n_entity
+        self.device = device
+        self.movie_num = n_item
         self.num_filters = model_config['num_filters']
         self.embed = model_config['embed']
         self.filter_sizes = eval(model_config['filter_sizes'])
-        self.dropout = model_config['dropout']
+        self.dropout = 0.2
         self.max_seq_length = model_config['max_history_items']
         self.build_model()
 

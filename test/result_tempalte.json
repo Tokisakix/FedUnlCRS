@@ -1,0 +1,105 @@
+{
+    "model": "<model_name>",
+    "dataset": "<dataset_name>",
+    "ablation_layer": null,
+    "unlearning_methon": "random",
+    "unlearning_num": 8,
+    "hyper_parameters": {
+        "n_clients": 8,
+        "embedding_dim": 256,
+        "aggregate_rate": 0.0003
+    },
+    "evaluate_rec": [
+        {
+            "epoch": 1,
+            "mode": "valid",
+            "unlearning": false,
+            "rec_task": {
+                "R@10": 0.0000,
+                "R@50": 0.0000,
+                "M@10": 0.0000,
+                "M@50": 0.0000,
+                "N@10": 0.0000,
+                "N@50": 0.0000
+            },
+            "fairness_aware": {
+                "APR@5": 0.0000,
+                "APR@10": 0.0000,
+                "APR@15": 0.0000,
+                "APR@20": 0.0000,
+                "LTR@5": 0.0000,
+                "LTR@10": 0.0000,
+                "LTR@15": 0.0000,
+                "LTR@20": 0.0000,
+                "Cov@5": 0.0000,
+                "Cov@10": 0.0000,
+                "Cov@15": 0.0000,
+                "Cov@20": 0.0000,
+                "Gini@5": 0.0000,
+                "Gini@10": 0.0000,
+                "Gini@15": 0.0000,
+                "Gini@20": 0.0000,
+                "KL@5": 0.0000,
+                "KL@10": 0.0000,
+                "KL@15": 0.0000,
+                "KL@20": 0.0000,
+                "Diff@5": 0.0000,
+                "Diff@10": 0.0000,
+                "Diff@15": 0.0000,
+                "Diff@20": 0.0000
+            }
+        }
+    ],
+    "evaluate_cov": [
+        {
+            "epoch": 1,
+            "mode": "valid",
+            "unlearning": false,
+            "cov_task": {
+                "BLEU-2": 0.0000,
+                "BLEU-3": 0.0000,
+                "BLEU-4": 0.0000,
+                "Dist-2": 0.0000,
+                "Dist-3": 0.0000,
+                "Dist-4": 0.0000
+            }
+        }
+    ],
+    "unlearning_time": [
+        {
+            "epoch": 1,
+            "user": {
+                "time_avg": 0.0000,
+                "time_std": 0.0000
+            },
+            "conv": {
+                "time_avg": 0.0000,
+                "time_std": 0.0000
+            },
+            "item": {
+                "time_avg": 0.0000,
+                "time_std": 0.0000
+            },
+            "entity": {
+                "time_avg": 0.0000,
+                "time_std": 0.0000
+            },
+            "word": {
+                "time_avg": 0.0000,
+                "time_std": 0.0000
+            },
+            "item_hypergraph": {
+                "time_avg": 0.0000,
+                "time_std": 0.0000
+            },
+            "entity_hypergraph": {
+                "time_avg": 0.0000,
+                "time_std": 0.0000
+            },
+            "word_hypergraph": {
+                "time_avg": 0.0000,
+                "time_std": 0.0000
+            }
+        }
+    ]
+}

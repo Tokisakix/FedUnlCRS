@@ -4,7 +4,7 @@ import torch
 from loguru import logger
 from torch import nn
 from transformers import BertConfig, BertModel
-from .Rec import SASREC
+from .rec import SASREC
 
 dataset_language_map = {
     'ReDial': 'en',
@@ -37,10 +37,13 @@ class TGRecModel(torch.nn.Module):
         self.attention_probs_dropout_prob = model_config['attention_probs_dropout_prob']
         self.hidden_act = model_config['hidden_act']
         self.num_hidden_layers = model_config['num_hidden_layers']
+        self.device = device
+        self.build_model()
+        return
 
     def build_model(self):
         # build BERT layer, give the architecture, load pretrained parameters
-        config = BertConfig() 
+        config = BertConfig(vocab_size=self.item_size) 
         self.bert = BertModel(config)  
         self.bert_hidden_size = self.bert.config.hidden_size
         self.concat_embed_size = self.bert_hidden_size + self.hidden_size
