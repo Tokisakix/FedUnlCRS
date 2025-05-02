@@ -1,6 +1,7 @@
 import os
 import json
 from typing import Dict, List
+from collections import defaultdict
 
 from fedunlcrs.utils import get_dataset, get_edger
 
@@ -20,19 +21,23 @@ class FedUnlDataLoader:
         self.entity_edger = self.build_edger(raw_entity_edger, self.entity2id, self.n_entity)
         self.word_edger = self.build_edger(raw_word_edger, self.word2id, self.n_word)
 
+        self.processed_entity_kg = self._entity_kg_process()
+
         # build dataset
         self.train_dataset = self.build_dataset(raw_train_dataset)
         self.valid_dataset = self.build_dataset(raw_valid_dataset)
         self.test_dataset = self.build_dataset(raw_test_dataset)
 
         return
-    
+
     def load_raw_data(self) -> None:
         raw_train_dataset, raw_valid_dataset, raw_test_dataset = get_dataset(self.dataset_name)
         raw_item_edger, raw_entity_edger, raw_word_edger = get_edger(self.dataset_name)
         self.item2id = json.load(open(os.path.join("data", self.dataset_name, "entity2id.json"), "r", encoding="utf-8"))
         self.entity2id = json.load(open(os.path.join("data", self.dataset_name, "entity2id.json"), "r", encoding="utf-8"))
         self.word2id = json.load(open(os.path.join("data", self.dataset_name, "token2id.json"), "r", encoding="utf-8"))
+        self.entity_kg = open("data/opendialkg/opendialkg_subkg.txt", "r", encoding="utf-8")
+        self.id2entity = {idx: entity for entity, idx in self.entity2id.items()}
 
         self.n_item = len(self.item2id) + 1
         self.n_entity = len(self.entity2id) + 1
@@ -112,6 +117,50 @@ class FedUnlDataLoader:
 
         return dataset
 
+    #TODO! support unlearning mask
+    def get_data(self, mode:str, batch_size:int, unlearning_mask:Dict) -> List[Dict]:
+        batch_data = []
+
+        if mode == "train":
+            dataset = self.train_dataset
+        elif mode == "valid":
+            dataset = self.valid_dataset
+        elif mode == "test":
+            dataset = self.test_dataset
+
+        batch = []
+        for meta_data in dataset:
+            if unlearning_mask is not None:
+                mask = {
+                    "item": set(unlearning_mask.get("item", [])),
+                    "entity": set(unlearning_mask.get("entity", [])),
+                    "word": set(unlearning_mask.get("word", [])),
+                }
+                if "item" in meta_data:
+                    meta_data["item"] = [item for item in meta_data["item"] if item not in mask["item"]]
+                if "entity" in meta_data:
+                    meta_data["entity"] = [entity for entity in meta_data["entity"] if entity not in mask["entity"]]
+                if "word" in meta_data:
+                    meta_data["word"] = [word for word in meta_data["word"] if word not in mask["word"]]
+            batch.append(meta_data)
+            if len(batch) >= batch_size:
+                batch_data.append(batch)
+                batch = []
+        if len(batch) > 0:
+            batch_data.append(batch)
+
+        # meta data's structure
+        # {
+        #     "dialog_id": int,
+        #     "role": str,
+        #     "item": list[int],
+        #     "entity": list[int],
+        #     "word": list[int],
+        #     "text": list[int],
+        # }
+
+        return batch_data
+    
     def get_fed_data(self, mode:str, batch_size:int) -> List[Dict]:
         batch_data = []
 
@@ -133,23 +182,48 @@ class FedUnlDataLoader:
 
         return batch_data
 
-    def get_data(self, mode:str, batch_size:int) -> List[Dict]:
-        batch_data = []
+    def _entity_kg_process(self):
+        edge_list = []  # [(entity, entity, relation)]
+        for line in self.entity_kg:
+            triple = line.strip().split('\t')
+            if len(triple) != 3 or triple[0] not in self.entity2id or triple[2] not in self.entity2id:
+                continue
+            e0 = self.entity2id[triple[0]]
+            e1 = self.entity2id[triple[2]]
+            r = triple[1]
+            edge_list.append((e0, e1, r))
+            # edge_list.append((e1, e0, r))
+            edge_list.append((e0, e0, 'SELF_LOOP'))
+            if e1 != e0:
+                edge_list.append((e1, e1, 'SELF_LOOP'))
 
-        if mode == "train":
-            dataset = self.train_dataset
-        elif mode == "valid":
-            dataset = self.valid_dataset
-        elif mode == "test":
-            dataset = self.test_dataset
+        relation_cnt, relation2id, edges, entities = defaultdict(int), dict(), set(), set()
+        for h, t, r in edge_list:
+            relation_cnt[r] += 1
+        for h, t, r in edge_list:
+            if relation_cnt[r] > 20000:
+                if r not in relation2id:
+                    relation2id[r] = len(relation2id)
+                edges.add((h, t, relation2id[r]))
+                entities.add(self.id2entity[h])
+                entities.add(self.id2entity[t])
 
-        batch = []
-        for meta_data in dataset:
-            batch.append(meta_data)
-            if len(batch) >= batch_size:
-                batch_data.append(batch)
-                batch = []
-        if len(batch) > 0:
-            batch_data.append(batch)
+        word_edges = set()  # {(entity, entity)}
+        word_entities = set()
+        for line in self.entity_kg:
+            triple = line.strip().split('\t')
+            word_entities.add(triple[0])
+            word_entities.add(triple[2])
+            e0 = self.word2id[triple[0]]
+            e1 = self.word2id[triple[2]]
+            word_edges.add((e0, e1))
+            word_edges.add((e1, e0))
+        # edge_set = [[co[0] for co in list(edges)], [co[1] for co in list(edges)]]
 
-        return batch_data
+        return {
+            'word_edge': list(word_edges),
+            'word_entity': list(word_entities),
+            'edge': list(edges),
+            'n_relation': len(relation2id),
+            'entity': list(entities)
+        }
