@@ -1,6 +1,6 @@
 task: unlearning
 
-model_name: hycorec # mlp hycorec
+model_name: ntrd # mlp hycorec kbrd bert gru4rec kgsf ntrd redial sasrec textcnn tgredial
 dataset_name: opendialkg # hredial htgredial opendialkg durecdial
 
 partition_methon: random # random
@@ -9,13 +9,13 @@ partition_mode: conv # user conv item entity word
 unlearning_layer:
   - [user, 8]
   - [conv, 8]
-  - [item, 8]
-  - [entity, 8]
-  - [word, 8]
+  - [item, 128]
+  - [entity, 128]
+  - [word, 128]
   - [item_hypergraph, 8]
   - [entity_hypergraph, 8]
   - [word_hypergraph, 8]
-unlearning_sample_methon: random # random topk
+unlearning_sample_methon: topk # random topk
 
 n_client_per_proc: 1
 n_proc: 8
@@ -24,11 +24,13 @@ n_client: 8
 aggregate_methon: mean # mean
 aggregate_rate: 0.0003
 
-epochs: 8
-batch_size: 32
+epochs: 3
+batch_size: 16
 learning_rate: 0.01
 
 random_config:
+
+topk_config:
 
 model_config:
   mlp:
@@ -39,3 +41,76 @@ model_config:
     emb_dim: 256
     pooling_methon: Attn # Mean Attn
     mha_n_heads: 4
+
+  kbrd:
+    emb_dim: 256
+    num_bases: 8
+
+  redial:
+    autorec_f: sigmoid
+    autorec_g: sigmoid
+    autorec_layer_sizes: 1000
+
+  tgredial:
+    hidden_dropout_prob: 0.2
+    initializer_range: 0.02
+    hidden_size: 50
+    max_history_items: 100
+    num_attention_heads: 1
+    attention_probs_dropout_prob: 0.2
+    hidden_act: gelu
+    num_hidden_layers: 2
+
+  sasrec:
+    idden_dropout_prob: 0.2
+    initializer_range: 0.02
+    hidden_size: 50
+    max_history_items: 100
+    num_attention_heads: 1
+    attention_probs_dropout_prob: 0.2
+    hidden_act: gelu
+    num_hidden_layers: 2
+
+  gru4rec:
+    gru_hidden_size: 10
+    num_layers: 3
+    embedding_dim: 256
+    dropout_input: 0
+    dropout_hidden: 0.0
+    batch_size: 8
+
+  bert:
+    max_history_items: 100
+
+  kgsf:
+    emb_dim: 256
+    num_bases: 8
+
+  ntrd:
+    emb_dim: 256
+    num_bases: 8
+
+  textcnn:
+    hidden_dropout_prob: 0.2
+    initializer_range: 0.02
+    hidden_size: 50
+    max_history_items: 100
+    num_attention_heads: 1
+    attention_probs_dropout_prob: 0.2
+    hidden_act: gelu
+    num_hidden_layers: 2
+    num_filters: 256
+    embed: 300
+    filter_sizes: (2, 3, 4)
+
+  mhim:
+    emb_dim: 128
+    num_bases: 8
+    n_heads: 2
+    n_layers: 2
+    dropout: 0.1
+    attention_dropout: 0.0
+    relu_dropout: 0.1
+    mha_n_heads: 4
+    pooling: Mean
+    extension_strategy: Adaptive
