@@ -3,7 +3,7 @@ from .kgsf import KGSFModel
 from .ntrd import NTRDModel
 from .redial import ReDialRecModel
 from .tgredial import TGRecModel
-from .Rec import SASREC
+from .rec import SASREC
 from .sasrec import SASRECModel
 from .gru4rec import GRU4RECModel
 from .bert import BERTModel

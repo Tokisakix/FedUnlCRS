@@ -1,6 +1,6 @@
 task: unlearning
 
-model_name: ntrd # mlp hycorec kbrd bert gru4rec kgsf ntrd redial sasrec textcnn tgredial
+model_name: ntrd # mlp hycorec kbrd bert gru4rec kgsf ntrd redial sasrec textcnn tgredial mhim rec
 dataset_name: opendialkg # hredial htgredial opendialkg durecdial
 
 partition_methon: random # random
