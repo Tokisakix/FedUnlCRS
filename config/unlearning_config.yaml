@@ -1,6 +1,6 @@
 task: unlearning
 
-model_name: gru4rec # mlp hycorec kbrd bert gru4rec kgsf ntrd redial sasrec textcnn tgredial mhim
+model_name: mlp # mlp hycorec kbrd bert gru4rec kgsf ntrd redial sasrec textcnn tgredial mhim
 dataset_name: opendialkg # hredial htgredial opendialkg durecdial
 
 partition_methon: random # random
@@ -17,9 +17,11 @@ unlearning_layer:
   - [word_hypergraph, 8]
 unlearning_sample_methon: topk # random topk
 
+ablation_layer: null
+
 n_client_per_proc: 1
-n_proc: 1
-n_client: 1
+n_proc: 8
+n_client: 8
 
 aggregate_methon: mean # mean
 aggregate_rate: 0.0003

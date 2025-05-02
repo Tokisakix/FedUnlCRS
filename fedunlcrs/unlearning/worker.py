@@ -45,7 +45,7 @@ class FedUnlWorker:
             )
 
         self.rank = rank
-        self.device = "cpu" # f"cuda:{rank}"
+        self.device = f"cuda:{rank}"
         self.client_ids = list(range(
             rank * self.config.n_client_per_proc,
             (rank + 1) * self.config.n_client_per_proc,
@@ -75,9 +75,11 @@ class FedUnlWorker:
             self.evaluate(mode="valid")
             if self.config.n_client > 1:
                 self.aggregate()
-            self.unlearning()
+            unlearning_mask = self.unlearning()
+            self.evaluate(mode="valid", unlearning_mask=unlearning_mask)
 
         self.evaluate(mode="test")
+        self.evaluate(mode="test", unlearning_mask=unlearning_mask)
         if self.config.n_client > 1:
             self.aggregate()
 
