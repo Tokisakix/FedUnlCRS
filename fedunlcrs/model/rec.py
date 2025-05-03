@@ -4,6 +4,8 @@ import copy
 import math
 import torch.nn.functional as F
 
+from typing import List
+
 class SASREC(torch.nn.Module):
     def __init__(self, hidden_dropout_prob, device, initializer_range,
                  hidden_size, max_seq_length, item_size, num_attention_heads,
@@ -338,3 +340,85 @@ class Encoder(nn.Module):
         if not output_all_encoded_layers:
             all_encoder_layers.append(hidden_states)
         return all_encoder_layers
+    
+class ConversationModule(torch.nn.Module):
+    def __init__(
+            self, embedding_dim:int, n_word:int, device:str
+        ) -> None:
+        super().__init__()
+        self.embedding_dim = embedding_dim
+        self.n_heads = 2
+        self.n_layers = 2
+        self.ffn_size = 300
+        self.vocab_size = n_word
+        self.dropout = 0.1
+        self.pad_token_idx = 0
+        self.user_proj_dim = 512
+        self.device = device
+        self.max_seq_length = 128
+        self.build_conversation_layer()
+        return
+    
+    def build_conversation_layer(self) -> None:
+        self.user_to_token = torch.nn.Linear(self.embedding_dim, self.embedding_dim, bias=True)
+        self.word_embedding = nn.Embedding(self.vocab_size, self.embedding_dim)
+        self.word_encoder = nn.Transformer(
+            self.embedding_dim,
+            self.n_heads,
+            self.n_layers,
+            self.n_layers,
+            self.ffn_size,
+            self.dropout,
+            batch_first=True,
+        )
+        self.user_proj_1 = torch.nn.Linear(self.embedding_dim, self.user_proj_dim)
+        self.user_proj_2 = torch.nn.Linear(self.user_proj_dim, self.vocab_size)
+        self.conv_loss = torch.nn.CrossEntropyLoss(ignore_index=self.pad_token_idx)
+
+        self.copy_proj_1 = torch.nn.Linear(2 * self.embedding_dim, self.embedding_dim)
+        self.copy_proj_2 = torch.nn.Linear(self.embedding_dim, self.vocab_size)
+        return
+    
+    def decode_forced(self, related_word:List[int], user_embedding:torch.FloatTensor) -> torch.FloatTensor:
+        related_word = related_word + [1]
+        if len(related_word) > self.max_seq_length:
+            related_word = related_word[-self.max_seq_length:]
+        padding_len = self.max_seq_length - len(related_word)
+
+        input_ids = related_word + [0] * padding_len
+        input_ids = torch.LongTensor([input_ids]).to(self.device)
+        
+        word_embedding = self.word_embedding(input_ids)
+        latent = self.word_encoder.forward(word_embedding, word_embedding)[0]
+
+        token_logits = F.linear(latent, self.word_embedding.weight)
+        user_logits = self.user_proj_2(torch.relu(self.user_proj_1(user_embedding)))
+
+        user_latent = self.user_to_token(user_embedding)
+        copy_latent = torch.cat((user_latent, latent[-1]), dim=-1)
+        copy_logits = self.copy_proj_2(torch.relu(self.copy_proj_1(copy_latent)))
+
+        sum_logits = token_logits + user_logits + copy_logits
+        return sum_logits
+
+    def decode_greedy(self, related_word:List[int], user_embedding:torch.FloatTensor) -> torch.FloatTensor:
+        inputs = related_word + [1]
+        response = []
+        for i in range(self.max_seq_length):
+            input_ids = torch.LongTensor([inputs + response]).to(self.device)
+        
+            word_embedding = self.word_embedding(input_ids)
+            latent = self.word_encoder.forward(word_embedding, word_embedding)[0]
+
+            token_logits = F.linear(latent, self.word_embedding.weight)
+            user_logits = self.user_proj_2(torch.relu(self.user_proj_1(user_embedding)))
+
+            user_latent = self.user_to_token(user_embedding)
+            copy_latent = torch.cat((user_latent, latent[-1]), dim=-1)
+            copy_logits = self.copy_proj_2(torch.relu(self.copy_proj_1(copy_latent)))
+
+            sum_logits = token_logits + user_logits + copy_logits
+            next_token = torch.argmax(sum_logits, dim=-1)[-1].item()
+            response.append(next_token)
+        response = torch.LongTensor(response).to(self.device)
+        return response

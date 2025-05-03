@@ -13,6 +13,7 @@ class FedUnlConfig:
 
         self.unlearning_layer = args["unlearning_layer"]
         self.unlearning_sample_methon = args["unlearning_sample_methon"]
+        self.topk = args["topk"]
 
         self.ablation_layer = args["ablation_layer"]
 
@@ -41,13 +42,8 @@ class FedUnlConfig:
             f"{self.model_name}_{self.dataset_name}_{self.unlearning_sample_methon}_{self.ablation_layer}_{self.n_client}_{self.emb_dim}_{self.aggregate_rate}"
         )
 
-        self.load_random_config(args)
         self.load_model_config(args)
 
-        return
-    
-    def load_random_config(self, args:Dict) -> None:
-        random_config = args["random_config"]
         return
     
     def load_model_config(self, args:Dict) -> None:

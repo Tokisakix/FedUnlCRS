@@ -1,46 +1,30 @@
 import torch.nn as nn
-from typing import Dict, List
+from typing import Dict, List, Tuple
 import torch
 import torch.nn.functional as F
 
+from .rec import ConversationModule
+
 class ReDialRecModel(torch.nn.Module):
-    """
-
-    Attributes:
-        n_entity: A integer indicating the number of entities.
-        layer_sizes: A integer indicating the size of layer in autorec.
-        pad_entity_idx: A integer indicating the id of entity padding.
-
-    """
-
-    def __init__(self, n_item:int, n_entity:int, n_word:int, model_config:Dict, device:str):
+    def __init__(
+            self, n_item:int, n_entity:int, n_word:int,
+            model_config:Dict, device:str
+        ) -> None:
         super(ReDialRecModel, self).__init__()
         self.device = device
         self.n_entity = n_entity
+        self.n_word = n_word
         self.layer_sizes = model_config['autorec_layer_sizes']
         self.pad_entity_idx = 0
         self.autorec_f = model_config['autorec_f']
         self.autorec_g = model_config['autorec_g']
         self.emb_dim = model_config["emb_dim"]
+        self.user_emb_dim = model_config["emb_dim"]
         self.n_item = n_item
-        self.context_truncate = opt['context_truncate']
-        self.response_truncate = opt['response_truncate']
-        self.pad_id = vocab['pad']
-        
-        self.utterance_encoder_hidden_size = opt['utterance_encoder_hidden_size']
-        self.dialog_encoder_hidden_size = opt['dialog_encoder_hidden_size']
-        self.dialog_encoder_num_layers = opt['dialog_encoder_num_layers']
-        self.use_dropout = opt['use_dropout']
-        self.dropout = opt['dropout']
-        # SwitchingDecoder
-        self.decoder_hidden_size = opt['decoder_hidden_size']
-        self.decoder_num_layers = opt['decoder_num_layers']
-        self.decoder_embedding_dim = opt['decoder_embedding_dim']
         self.build_model()
-
+        return
 
     def build_model(self):
-        # AutoRec
         if self.autorec_f == 'identity':
             self.f = lambda x: x
         elif self.autorec_f == 'sigmoid':
@@ -68,42 +52,13 @@ class ReDialRecModel(torch.nn.Module):
         self.rec_bias = torch.nn.Linear(self.emb_dim, self.n_entity)
         self.entity_embedding = torch.nn.Embedding(self.n_item, self.emb_dim, 0)
         self.item_embedding = torch.nn.Embedding(self.n_item, self.emb_dim, 0)
+        self.con_module = ConversationModule(self.user_emb_dim, self.n_word, self.device)
+        return
 
-        # add
-        self.encoder = HRNN(
-            embedding=embedding,
-            utterance_encoder_hidden_size=self.utterance_encoder_hidden_size,
-            dialog_encoder_hidden_size=self.dialog_encoder_hidden_size,
-            dialog_encoder_num_layers=self.dialog_encoder_num_layers,
-            use_dropout=self.use_dropout,
-            dropout=self.dropout,
-            pad_token_idx=self.pad_token_idx
-        )
-
-        self.decoder = SwitchingDecoder(
-            hidden_size=self.decoder_hidden_size,
-            context_size=self.dialog_encoder_hidden_size,
-            num_layers=self.decoder_num_layers,
-            vocab_size=self.vocab_size,
-            embedding=embedding,
-            pad_token_idx=self.pad_token_idx
-        )
-        self.loss = nn.CrossEntropyLoss(ignore_index=self.pad_token_idx)
-
-    def rec_forward(self, batch_data:List[Dict], item_edger:Dict, entity_edger:Dict, word_edger:Dict):
-        """
-
-        Args:
-            batch: ::
-
-                {
-                    'context_entities': (batch_size, n_entity),
-                    'item': (batch_size)
-                }
-
-            mode (str)
-
-        """
+    def rec_forward(
+            self, batch_data:List[Dict],
+            item_edger:Dict, entity_edger:Dict, word_edger:Dict
+        ) -> Tuple[torch.FloatTensor, torch.LongTensor, torch.FloatTensor]:
         related_entity = [meta_data["entity"] for meta_data in batch_data]
         related_item = [meta_data["item"] for meta_data in batch_data]
         labels = torch.LongTensor([meta_data["label"] for meta_data in batch_data]).to(self.device)
@@ -126,43 +81,43 @@ class ReDialRecModel(torch.nn.Module):
         loss = self.loss(logits, labels)
         return logits, labels, loss
 
-    
-    #add
-    def forward(self, batch, mode):
-        """
-        Args:
-            batch: ::
+    def con_forward(
+            self, batch_data:List[Dict],
+            item_edger:Dict, entity_edger:Dict, word_edger:Dict
+        ) -> Tuple[torch.LongTensor, torch.LongTensor, torch.FloatTensor]:
+        related_entity = [meta_data["entity"] for meta_data in batch_data]
+        related_item = [meta_data["item"] for meta_data in batch_data]
+        related_words = [meta_data["word"] for meta_data in batch_data]
+        texts = [meta_data["text"][1:] for meta_data in batch_data]
+        labels = torch.LongTensor([meta_data["label"] for meta_data in batch_data]).to(self.device)
 
-                {
-                    'context': (batch_size, max_context_length, max_utterance_length),
-                    'context_lengths': (batch_size),
-                    'utterance_lengths': (batch_size, max_context_length),
-                    'request': (batch_size, max_utterance_length),
-                    'request_lengths': (batch_size),
-                    'response': (batch_size, max_utterance_length)
-                }
+        entity_embedding = []
+        item_embedding = []
+        for entity_list, item_list in zip(related_entity, related_item):
+            entity_tensor = torch.LongTensor(entity_list).to(self.device)
+            entity_repr = self.entity_embedding(entity_tensor).mean(dim=0, keepdim=True)
+            entity_embedding.append(entity_repr)
 
-        """
-        assert mode in ('train', 'valid', 'test')
-        if mode == 'train':
-            self.train()
-        else:
-            self.eval()
+            item_tensor = torch.LongTensor(item_list).to(self.device)
+            item_repr = self.item_embedding(item_tensor).mean(dim=0, keepdim=True)
+            item_embedding.append(item_repr)
 
-        context = batch['context']
-        utterance_lengths = batch['utterance_lengths']
-        context_lengths = batch['context_lengths']
-        context_state = self.encoder(context, utterance_lengths,
-                                     context_lengths)  # (batch_size, context_encoder_hidden_size)
+        entity_embedding = torch.concatenate(entity_embedding, dim=0)
+        item_embedding = torch.concatenate(item_embedding, dim=0)
+        user_embeddings = (entity_embedding + item_embedding) / 2
 
-        request = batch['request']
-        request_lengths = batch['request_lengths']
-        log_probs = self.decoder(request, request_lengths,
-                                 context_state)  # (batch_size, max_utterance_length, vocab_size + 1)
-        preds = log_probs.argmax(dim=-1)  # (batch_size, max_utterance_length)
+        logits = []
+        labels = []
+        for related_word, user_embedding, label in zip(related_words, user_embeddings, texts):
+            label = torch.LongTensor(label).to(self.device)
+            logit = self.con_module.decode_forced(related_word, user_embedding)[:label.size(0)]
+            logits.append(logit)
+            labels.append(label)
 
-        log_probs = log_probs.view(-1, log_probs.shape[-1])
-        response = batch['response'].view(-1)
-        loss = self.loss(log_probs, response)
+        labels = torch.concatenate(labels, dim=0)
+        logits = torch.concatenate(logits, dim=0)
+        loss = torch.nn.CrossEntropyLoss()(logits, labels)
 
-        return loss, preds
+        response = torch.argmax(logits, dim=-1)
+
+        return response, labels, loss

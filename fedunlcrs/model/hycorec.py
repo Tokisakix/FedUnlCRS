@@ -1,8 +1,10 @@
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 import torch
 import torch.nn.functional as F
 from torch_geometric.nn import HypergraphConv
+
+from .rec import ConversationModule
 
 class MHItemAttention(torch.nn.Module):
     def __init__(self, dim, head_num):
@@ -35,7 +37,10 @@ class SelfAttentionBatch(torch.nn.Module):
         return torch.matmul(attention, h)
 
 class HyCoRec(torch.nn.Module):
-    def __init__(self, n_item:int, n_entity:int, n_word:int, model_config:Dict, device:str):
+    def __init__(
+            self, n_item:int, n_entity:int, n_word:int,
+            model_config:Dict, device:str
+        ) -> None:
         super().__init__()
 
         self.n_item = n_item
@@ -58,6 +63,7 @@ class HyCoRec(torch.nn.Module):
         self._build_embedding()
         self._build_kg_layer()
         self._build_recommendation_layer()
+        self.con_module = ConversationModule(self.user_emb_dim, self.n_word, self.device)
         return
 
     def _build_embedding(self):
@@ -225,7 +231,10 @@ class HyCoRec(torch.nn.Module):
         user_embedding = torch.stack(user_repr_list, dim=0)
         return user_embedding
 
-    def rec_forward(self, batch_data:List[Dict], item_edger:Dict, entity_edger:Dict, word_edger:Dict) -> torch.FloatTensor:
+    def rec_forward(
+            self, batch_data:List[Dict],
+            item_edger:Dict, entity_edger:Dict, word_edger:Dict
+        ) -> Tuple[torch.FloatTensor, torch.LongTensor, torch.FloatTensor]:
         self.item_adj = item_edger
         self.entity_adj = entity_edger
         self.word_adj = word_edger
@@ -263,3 +272,44 @@ class HyCoRec(torch.nn.Module):
         sub_edge_index = torch.tensor(edge_index).long()
         sub_edge_index = sub_edge_index.to(self.device)
         return sub_embeddings, sub_edge_index, tot2sub
+
+    def con_forward(
+            self, batch_data:List[Dict],
+            item_edger:Dict, entity_edger:Dict, word_edger:Dict
+        ) -> Tuple[torch.LongTensor, torch.LongTensor, torch.FloatTensor]:
+        self.item_adj = item_edger
+        self.entity_adj = entity_edger
+        self.word_adj = word_edger
+
+        related_item = [meta_data["item"] for meta_data in batch_data]
+        related_entity = [meta_data["entity"] for meta_data in batch_data]
+        related_words = [meta_data["word"] for meta_data in batch_data]
+        texts = [meta_data["text"][1:] for meta_data in batch_data]
+        item_embedding = self.entity_embedding.weight
+        entity_embedding = self.entity_embedding.weight
+        token_embedding = self.word_embedding.weight
+
+        user_embeddings = self.encode_user(
+            related_item,
+            related_entity,
+            related_words,
+            item_embedding,
+            entity_embedding,
+            token_embedding,
+        )
+
+        logits = []
+        labels = []
+        for related_word, user_embedding, label in zip(related_words, user_embeddings, texts):
+            label = torch.LongTensor(label).to(self.device)
+            logit = self.con_module.decode_forced(related_word, user_embedding)[:label.size(0)]
+            logits.append(logit)
+            labels.append(label)
+
+        labels = torch.concatenate(labels, dim=0)
+        logits = torch.concatenate(logits, dim=0)
+        loss = torch.nn.CrossEntropyLoss()(logits, labels)
+
+        response = torch.argmax(logits, dim=-1)
+
+        return response, labels, loss

@@ -51,6 +51,7 @@ class FedUnlWorker:
 
         self.rank = rank
         self.device = f"cuda:{rank}"
+        # self.device = "cpu"
         self.client_ids = list(range(
             rank * self.config.n_client_per_proc,
             (rank + 1) * self.config.n_client_per_proc,
