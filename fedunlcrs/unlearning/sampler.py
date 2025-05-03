@@ -151,7 +151,7 @@ class GraphUnlSampler:
         if methon == "random":
             unlearning_clients, unlearning_mask = self.methon_random(self.config.topk, id_to_client)
         if methon == "topk":
-            unlearning_clients, unlearning_mask = self.methon_topk_node(self.config.topk, id_to_client)
+            unlearning_clients, unlearning_mask = self.methon_topk(self.config.topk, id_to_client)
 
         all_clients = set(range(self.config.n_client))
         learning_clients = list(all_clients - set(unlearning_clients))
@@ -169,7 +169,7 @@ class GraphUnlSampler:
             unlearning_clients.add(id_to_client[id])
         return [list(unlearning_clients), None]
     
-    def methon_topk_node(self, topk:int, id_to_client:Dict) -> Tuple[List[int], Dict]:
+    def methon_topk(self, topk:int, id_to_client:Dict) -> Tuple[List[int], Dict]:
         topk_ids = {
             "item": self.top_item_ids,
             "entity": self.top_entity_ids,
