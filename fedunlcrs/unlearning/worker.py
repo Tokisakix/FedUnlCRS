@@ -13,9 +13,15 @@ import torch.multiprocessing as mp
 
 from .config import FedUnlConfig
 from .sampler import GraphUnlSampler
-from fedunlcrs.utils import FedUnlDataLoader, REC_METRIC_TABLE, CON_METRIC_TABLE
-from fedunlcrs.model import FedUnlMlp, HyCoRec
-from fedunlcrs.baseline import KBRDModel, BERTModel, GRU4RECModel, KGSFModel, NTRDModel, ReDialRecModel, TGRecModel, SASRECModel, TextCNNModel, MHIMModel
+from fedunlcrs.utils import (
+    FedUnlDataLoader,
+    REC_METRIC_TABLE, CON_METRIC_TABLE
+)
+from fedunlcrs.model import (
+    FedUnlMlp, HyCoRec,
+    KBRDModel, BERTModel, GRU4RECModel, KGSFModel,NTRDModel,
+    ReDialRecModel, TGRecModel, SASRECModel, TextCNNModel, MHIMModel
+)
 
 class FedUnlWorker:
     def __init__(self, config:FedUnlConfig) -> None:
