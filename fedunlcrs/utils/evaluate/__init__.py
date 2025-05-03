@@ -6,6 +6,9 @@ from .rec_metric import (
     AprMetric, LtrMetric, CovMetric,
     GiniMetric, KlMetric, DiffMetric
 )
+from .con_metric import (
+    BleuMetric, DistMetric
+)
     
 REC_METRIC_TABLE : List[Dict[str, BaseMetric]] = [
     {
@@ -47,4 +50,15 @@ REC_METRIC_TABLE : List[Dict[str, BaseMetric]] = [
         "Diff@15" : DiffMetric(k=15, threshold=0.1),
         "Diff@20" : DiffMetric(k=20, threshold=0.1),
     },
+]
+
+CON_METRIC_TABLE: List[Dict[str, BaseMetric]] = [
+    {
+        "Bleu@2" : BleuMetric(k=2),
+        "Bleu@3" : BleuMetric(k=3),
+        "Bleu@4" : BleuMetric(k=4),
+        "Dist@2" : DistMetric(k=2),
+        "Dist@3" : DistMetric(k=3),
+        "Dist@4" : DistMetric(k=4),
+    }
 ]
