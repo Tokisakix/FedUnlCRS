@@ -1,8 +1,11 @@
 import torch
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 class FedUnlMlp(torch.nn.Module):
-    def __init__(self, n_item:int, n_entity:int, n_word:int, model_config:Dict, device:str):
+    def __init__(
+            self, n_item:int, n_entity:int, n_word:int,
+            model_config:Dict, device:str
+        ) -> None:
         super().__init__()
         self.n_item = n_item
         self.n_entity = n_entity
@@ -22,7 +25,10 @@ class FedUnlMlp(torch.nn.Module):
         )
         return
     
-    def rec_forward(self, batch_data:List[Dict], item_edger:Dict, entity_edger:Dict, word_edger:Dict) -> torch.FloatTensor:
+    def rec_forward(
+            self, batch_data:List[Dict],
+            item_edger:Dict, entity_edger:Dict, word_edger:Dict
+        ) -> Tuple[torch.FloatTensor, torch.LongTensor, torch.FloatTensor]:
         label = []
         user_embedding = []
 
@@ -44,7 +50,10 @@ class FedUnlMlp(torch.nn.Module):
 
         return logits, labels, loss
     
-    def con_forward(self, batch_data:List[Dict], item_edger:Dict, entity_edger:Dict, word_edger:Dict) -> torch.FloatTensor:
+    def con_forward(
+            self, batch_data:List[Dict],
+            item_edger:Dict, entity_edger:Dict, word_edger:Dict
+        ) -> Tuple[torch.LongTensor, torch.LongTensor, torch.FloatTensor]:
         labels = []
         logits = []
 
