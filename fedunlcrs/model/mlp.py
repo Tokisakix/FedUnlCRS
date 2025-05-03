@@ -69,4 +69,6 @@ class FedUnlMlp(torch.nn.Module):
         logits = torch.concatenate(logits, dim=0)
         loss = torch.nn.CrossEntropyLoss()(logits, labels)
 
-        return logits, labels, loss
+        response = torch.argmax(logits, dim=-1)
+
+        return response, labels, loss

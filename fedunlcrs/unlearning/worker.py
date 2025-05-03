@@ -13,7 +13,7 @@ import torch.multiprocessing as mp
 
 from .config import FedUnlConfig
 from .sampler import GraphUnlSampler
-from fedunlcrs.utils import FedUnlDataLoader, REC_METRIC_TABLE
+from fedunlcrs.utils import FedUnlDataLoader, REC_METRIC_TABLE, CON_METRIC_TABLE
 from fedunlcrs.model import FedUnlMlp, HyCoRec
 from fedunlcrs.baseline import KBRDModel, BERTModel, GRU4RECModel, KGSFModel, NTRDModel, ReDialRecModel, TGRecModel, SASRECModel, TextCNNModel, MHIMModel
 
@@ -53,7 +53,9 @@ class FedUnlWorker:
         if self.rank == 0:
             self.sampler = GraphUnlSampler(self.config)
             os.makedirs(self.config.save_path, exist_ok=True)
+            os.makedirs(self.config.evaluate_path, exist_ok=True)
 
+        self.epoch : int = 0
         self.build_loader()
         self.build_model()
         self.full_data = {
@@ -67,13 +69,12 @@ class FedUnlWorker:
                 "embedding_dim": self.config.emb_dim,
                 "aggregate_rate": self.config.aggregate_rate
             },
-            "evaluate_rec": [],
-            "evaluate_cov": [],
+            "evaluate": [],
             "unlearning_time": []
         }
 
 
-        for epoch in range(self.config.epochs):
+        for _ in range(self.config.epochs):
             proc_train_time = []
             for (model, optimizer, dataloader) in zip(self.models, self.optims, self.dataloaders):
                 client_train_time = self.federate(model, optimizer, dataloader)
@@ -86,6 +87,7 @@ class FedUnlWorker:
                 self.train_time = [tensor.item() for tensor in torch.concatenate(tot_train_time, dim=0).reshape(-1)]
             else:
                 self.train_time = proc_train_time
+            self.epoch += 1
 
             self.evaluate(mode="valid")
             if self.config.n_client > 1:
@@ -257,31 +259,11 @@ class FedUnlWorker:
             time_entry[layer]["time_avg"] = unlearning_result[layer]["Avg"]
             time_entry[layer]["time_std"] = unlearning_result[layer]["Std"]
         
-        os.makedirs(self.config.evaluate_path, exist_ok=True)
-        save_path = os.path.join(self.config.evaluate_path, "test_evaluation_result.json")
-        if os.path.exists(save_path) and os.path.getsize(save_path) > 0:
-                with open(save_path, "r") as f:
-                 full_data = json.load(f)
-        else:
-            full_data = {
-                "model": self.config.model_name,
-                "dataset": getattr(self.dataloaders[0], "dataset_name", "unknown"),
-                "ablation_layer": getattr(self.config, "ablation_layer", None),
-                "unlearning_methon": getattr(self.config, "unlearning_methon", None),
-                "unlearning_num": getattr(self.config, "unlearning_num", None),
-                "hyper_parameters": {
-                    "n_clients": self.config.n_client,
-                    "embedding_dim": self.config.emb_dim,
-                    "aggregate_rate": self.config.aggregate_rate
-                },
-                "evaluate_rec": {},
-                "evaluate_cov": {},
-                "unlearning_time": {}
-            }
-        full_data["unlearning_time"]= time_entry
+        save_path = os.path.join(self.config.evaluate_path, "evaluation_result.json")
+        self.full_data["unlearning_time"] = time_entry
 
         with open(save_path, "w") as f:
-            json.dump(full_data, f, indent=4)
+            json.dump(self.full_data, f, indent=4)
 
         return unlearning_mask
     
@@ -300,10 +282,13 @@ class FedUnlWorker:
     def evaluate(self, mode: str, unlearning_mask: Dict = None, unlearning: bool = False) -> None:
         proc_evaluate_res = []
 
+        # evaluate rec con
         for model, dataloader in zip(self.models, self.dataloaders):
-            client_result = self.evaluate_rec(model, dataloader, mode, unlearning_mask)
-            proc_evaluate_res.append(client_result)
+            rec_client_result = self.evaluate_rec(model, dataloader, mode, unlearning_mask)
+            con_client_result = self.evaluate_con(model, dataloader, mode, unlearning_mask)
+            proc_evaluate_res.append(rec_client_result + con_client_result)
 
+        # gather results
         if self.config.n_client > 1:
             proc_evaluate_res = torch.tensor(proc_evaluate_res).to(self.device)
             gathered = [torch.zeros_like(proc_evaluate_res).to(self.device) for _ in range(self.config.n_proc)]
@@ -316,14 +301,17 @@ class FedUnlWorker:
         else:
             evaluate_res = np.array(proc_evaluate_res)
 
+        # logging
         if self.rank == 0:
             evaluate_res_avg = evaluate_res.mean(axis=0)
             evaluate_res_std = evaluate_res.std(axis=0)
 
             rec_task = {}
+            con_task = {}
             fairness_aware = {}
             metric_idx = 0
 
+            # rec metrics
             for metric_group in REC_METRIC_TABLE:
                 for metric_name in metric_group.keys():
                     value = round(float(evaluate_res_avg[metric_idx]), 4)
@@ -333,41 +321,27 @@ class FedUnlWorker:
                         rec_task[metric_name] = value
                     metric_idx += 1
 
+            # con metrics
+            for metric_group in CON_METRIC_TABLE:
+                for metric_name in metric_group.keys():
+                    value = round(float(evaluate_res_avg[metric_idx]), 4)
+                    con_task[metric_name] = value
+                    metric_idx += 1
+
             result_entry = {
-                "epoch": self.config.epochs,
+                "epoch": self.epoch,
                 "mode": mode,
                 "unlearning": unlearning,
                 "rec_task": rec_task,
+                "con_task": con_task,
                 "fairness_aware": fairness_aware
             }
 
-            os.makedirs(self.config.evaluate_path, exist_ok=True)
-            save_path = os.path.join(self.config.evaluate_path, f"{mode}_evaluation_result.json")
+            self.full_data["evaluate"].append(result_entry)
 
-            if os.path.exists(save_path) and os.path.getsize(save_path) > 0:
-                with open(save_path, "r") as f:
-                 full_data = json.load(f)
-            else:
-                full_data = {
-                    "model": self.config.model_name,
-                    "dataset": getattr(self.dataloaders[0], "dataset_name", "unknown"),
-                    "ablation_layer": getattr(self.config, "ablation_layer", None),
-                    "unlearning_methon": getattr(self.config, "unlearning_methon", None),
-                    "unlearning_num": getattr(self.config, "unlearning_num", None),
-                    "hyper_parameters": {
-                        "n_clients": self.config.n_client,
-                        "embedding_dim": self.config.emb_dim,
-                        "aggregate_rate": self.config.aggregate_rate
-                    },
-                    "evaluate_rec": {},
-                    "evaluate_cov": {},
-                    "unlearning_time": {}
-                }
-
-            full_data["evaluate_rec"]= result_entry
-
+            save_path = os.path.join(self.config.evaluate_path, f"evaluation_result.json")
             with open(save_path, "w") as f:
-                json.dump(full_data, f, indent=4)
+                json.dump(self.full_data, f, indent=4)
 
             print(f"Evaluation result saved to {save_path}")
         
@@ -395,3 +369,27 @@ class FedUnlWorker:
                 evaluate_res.append(metric.report())
 
         return evaluate_res
+    
+    def evaluate_con(self, model:torch.nn.Module, dataloader:FedUnlDataLoader, mode:str, unlearning_mask:Dict=None) -> List[float]:
+        for metrics in CON_METRIC_TABLE:
+            for index in metrics:
+                metric = metrics[index]
+                metric.reset()
+
+        for batch_data in tqdm(dataloader.get_data(mode, 1, unlearning_mask), disable=(self.rank != 0)):
+            label = batch_data[0]["text"]
+            response, _, loss = model.con_forward(batch_data, dataloader.item_edger, dataloader.entity_edger, dataloader.word_edger)
+            response = response.tolist()
+            
+            for metrics in CON_METRIC_TABLE:
+                for index in metrics:
+                    metric = metrics[index]
+                    metric.step(response, label)
+
+        evaluate_con = []
+        for metrics in CON_METRIC_TABLE:
+            for index in metrics:
+                metric = metrics[index]
+                evaluate_con.append(metric.report())
+
+        return evaluate_con

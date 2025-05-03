@@ -26,7 +26,7 @@ n_client: 1
 aggregate_methon: mean # mean
 aggregate_rate: 0.0003
 
-epochs: 1
+epochs: 4
 batch_size: 16
 learning_rate: 0.01
 
