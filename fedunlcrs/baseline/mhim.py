@@ -90,6 +90,64 @@ class MHIMModel(torch.nn.Module):
         self.rec_loss = torch.nn.CrossEntropyLoss()
         return
 
+    def _build_conversation_layer(self):
+        self.register_buffer('START', torch.tensor([self.start_token_idx], dtype=torch.long))
+        self.entity_to_token = nn.Linear(self.kg_emb_dim, self.token_emb_dim, bias=True)
+        self.related_encoder = TransformerEncoder(
+            self.n_heads,
+            self.n_layers,
+            self.token_emb_dim,
+            self.ffn_size,
+            self.vocab_size,
+            self.token_embedding,
+            self.dropout,
+            self.attention_dropout,
+            self.relu_dropout,
+            self.pad_token_idx,
+            self.learn_positional_embeddings,
+            self.embeddings_scale,
+            self.reduction,
+            self.n_positions
+        )
+        self.context_encoder = TransformerEncoder(
+            self.n_heads,
+            self.n_layers,
+            self.token_emb_dim,
+            self.ffn_size,
+            self.vocab_size,
+            self.token_embedding,
+            self.dropout,
+            self.attention_dropout,
+            self.relu_dropout,
+            self.pad_token_idx,
+            self.learn_positional_embeddings,
+            self.embeddings_scale,
+            self.reduction,
+            self.n_positions
+        )
+        self.decoder = TransformerDecoderKG(
+            self.n_heads,
+            self.n_layers,
+            self.token_emb_dim,
+            self.ffn_size,
+            self.vocab_size,
+            self.token_embedding,
+            self.dropout,
+            self.attention_dropout,
+            self.relu_dropout,
+            self.embeddings_scale,
+            self.learn_positional_embeddings,
+            self.pad_token_idx,
+            self.n_positions
+        )
+        self.user_proj_1 = nn.Linear(self.user_emb_dim, self.user_proj_dim)
+        self.user_proj_2 = nn.Linear(self.user_proj_dim, self.vocab_size)
+        self.conv_loss = nn.CrossEntropyLoss(ignore_index=self.pad_token_idx)
+
+        self.copy_proj_1 = nn.Linear(2 * self.token_emb_dim, self.token_emb_dim)
+        self.copy_proj_2 = nn.Linear(self.token_emb_dim, self.vocab_size)
+        logger.debug('[Build conversation layer]')
+
     def _get_hypergraph(self, related, adj):
         related_items_set = set()
         for related_items in related:
@@ -251,3 +309,150 @@ class MHIMModel(torch.nn.Module):
         sub_edge_index = torch.tensor(edge_index).long()
         sub_edge_index = sub_edge_index.to(self.device)
         return sub_embeddings, sub_edge_index, tot2sub
+
+    def _starts(self, batch_size):
+        """Return bsz start tokens."""
+        return self.START.detach().expand(batch_size, 1)
+
+    def freeze_parameters(self):
+        freeze_models = [
+            self.kg_embedding,
+            self.kg_encoder,
+            self.hyper_conv_session,
+            self.hyper_conv_knowledge,
+            self.item_attn,
+            self.rec_bias
+        ]
+        if self.pooling == "Attn":
+            freeze_models.append(self.kg_attn)
+            freeze_models.append(self.kg_attn_his)
+        for model in freeze_models:
+            for p in model.parameters():
+                p.requires_grad = False
+
+    def encode_session(self, batch_related_items, batch_context_entities, kg_embedding):
+        """
+            Return: session_repr (batch_size, batch_seq_len, token_emb_dim), mask (batch_size, batch_seq_len)
+        """
+        session_repr_list = []
+        for session_related_items, context_entities in zip(batch_related_items, batch_context_entities):
+            flattened_session_related_items = self.flatten(session_related_items)
+
+            # COLD START
+            if len(flattened_session_related_items) == 0:
+                if len(context_entities) == 0:
+                    session_repr_list.append(None)
+                else:
+                    session_repr = kg_embedding[context_entities]
+                    session_repr_list.append(session_repr)
+                continue
+
+            # TOTAL
+            hypergraph_items, session_hyper_edge_index = self._get_session_hypergraph(session_related_items)
+            session_embedding = self.hyper_conv_session(kg_embedding, session_hyper_edge_index)
+            session_embedding = session_embedding[hypergraph_items]
+            _, knowledge_hyper_edge_index = self._get_knowledge_hypergraph(session_related_items)
+            raw_knowledge_embedding = self.hyper_conv_knowledge(kg_embedding, knowledge_hyper_edge_index)
+            knowledge_embedding = self._get_knowledge_embedding(hypergraph_items, raw_knowledge_embedding)
+            if len(context_entities) == 0:
+                session_repr = torch.cat((session_embedding, knowledge_embedding), dim=0)
+                session_repr_list.append(session_repr)
+            else:
+                context_embedding = kg_embedding[context_entities]
+                session_repr = torch.cat((session_embedding, knowledge_embedding, context_embedding), dim=0)
+                session_repr_list.append(session_repr)
+
+        batch_seq_len = max([session_repr.size(0) for session_repr in session_repr_list if session_repr is not None])
+        mask_list = []
+        for i in range(len(session_repr_list)):
+            if session_repr_list[i] is None:
+                mask_list.append([False] * batch_seq_len)
+                zero_repr = torch.zeros((batch_seq_len, self.kg_emb_dim), device=self.device, dtype=torch.float)
+                session_repr_list[i] = zero_repr
+            else:
+                mask_list.append([False] * (batch_seq_len - session_repr_list[i].size(0)) + [True] * session_repr_list[i].size(0))
+                zero_repr = torch.zeros((batch_seq_len - session_repr_list[i].size(0), self.kg_emb_dim),
+                                        device=self.device, dtype=torch.float)
+                session_repr_list[i] = torch.cat((zero_repr, session_repr_list[i]), dim=0)
+
+        session_repr_embedding = torch.stack(session_repr_list, dim=0)
+        session_repr_embedding = self.entity_to_token(session_repr_embedding)
+        return session_repr_embedding, torch.tensor(mask_list, device=self.device, dtype=torch.bool)
+
+    def decode_forced(self, related_encoder_state, context_encoder_state, session_state, user_embedding, resp):
+        bsz = resp.size(0)
+        seqlen = resp.size(1)
+        inputs = resp.narrow(1, 0, seqlen - 1)
+        inputs = torch.cat([self._starts(bsz), inputs], 1)
+        latent, _ = self.decoder(inputs, related_encoder_state, context_encoder_state, session_state)
+        token_logits = F.linear(latent, self.token_embedding.weight)
+        user_logits = self.user_proj_2(torch.relu(self.user_proj_1(user_embedding))).unsqueeze(1)
+
+        user_latent = self.entity_to_token(user_embedding)
+        user_latent = user_latent.unsqueeze(1).expand(-1, seqlen, -1)
+        copy_latent = torch.cat((user_latent, latent), dim=-1)
+        copy_logits = self.copy_proj_2(torch.relu(self.copy_proj_1(copy_latent)))
+        if self.dataset == 'HReDial':
+            copy_logits = copy_logits * self.copy_mask.unsqueeze(0).unsqueeze(0)  # not for tg-redial
+        sum_logits = token_logits + user_logits + copy_logits
+        _, preds = sum_logits.max(dim=-1)
+        return sum_logits, preds
+
+    def decode_greedy(self, related_encoder_state, context_encoder_state, session_state, user_embedding):
+        bsz = context_encoder_state[0].shape[0]
+        xs = self._starts(bsz)
+        incr_state = None
+        logits = []
+        for i in range(self.longest_label):
+            scores, incr_state = self.decoder(xs, related_encoder_state, context_encoder_state, session_state, incr_state)  # incr_state is always None
+            scores = scores[:, -1:, :]
+            token_logits = F.linear(scores, self.token_embedding.weight)
+            user_logits = self.user_proj_2(torch.relu(self.user_proj_1(user_embedding))).unsqueeze(1)
+
+            user_latent = self.entity_to_token(user_embedding)
+            user_latent = user_latent.unsqueeze(1).expand(-1, 1, -1)
+            copy_latent = torch.cat((user_latent, scores), dim=-1)
+            copy_logits = self.copy_proj_2(torch.relu(self.copy_proj_1(copy_latent)))
+            if self.dataset == 'HReDial':
+                copy_logits = copy_logits * self.copy_mask.unsqueeze(0).unsqueeze(0)  # not for tg-redial
+            sum_logits = token_logits + user_logits + copy_logits
+            probs, preds = sum_logits.max(dim=-1)
+            logits.append(scores)
+            xs = torch.cat([xs, preds], dim=1)
+            # check if everyone has generated an end token
+            all_finished = ((xs == self.end_token_idx).sum(dim=1) > 0).sum().item() == bsz
+            if all_finished:
+                break
+        logits = torch.cat(logits, 1)
+        return logits, xs
+
+    def converse(self, batch, mode):
+        related_tokens = batch['related_tokens']
+        context_tokens = batch['context_tokens']
+        related_items = batch['related_items']
+        related_entities = batch['related_entities']
+        context_entities = batch['context_entities']
+        response = batch['response']
+        kg_embedding = self.kg_encoder(self.kg_embedding.weight, self.edge_idx, self.edge_type)  # (n_entity, emb_dim)
+        session_state = self.encode_session(
+            related_items,
+            context_entities,
+            kg_embedding
+        )  # (batch_size, batch_seq_len, token_emb_dim)
+        user_embedding = self.encode_user(
+            related_entities,
+            related_items,
+            context_entities,
+            kg_embedding
+        )  # (batch_size, emb_dim)
+        related_encoder_state = self.related_encoder(related_tokens)
+        context_encoder_state = self.context_encoder(context_tokens)
+        if mode != 'test':
+            self.longest_label = max(self.longest_label, response.shape[1])
+            logits, preds = self.decode_forced(related_encoder_state, context_encoder_state, session_state, user_embedding, response)
+            logits = logits.view(-1, logits.shape[-1])
+            labels = response.view(-1)
+            return self.conv_loss(logits, labels), preds
+        else:
+            _, preds = self.decode_greedy(related_encoder_state, context_encoder_state, session_state, user_embedding)
+            return preds

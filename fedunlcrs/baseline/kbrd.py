@@ -76,6 +76,44 @@ class KBRDModel(torch.nn.Module):
         self.rec_loss = nn.CrossEntropyLoss()
         logger.debug('[Build recommendation layer]')
 
+     def _build_conversation_layer(self):
+        self.register_buffer('START', torch.tensor([self.start_token_idx], dtype=torch.long))
+        self.dialog_encoder = TransformerEncoder(
+            self.n_heads,
+            self.n_layers,
+            self.token_emb_dim,
+            self.ffn_size,
+            self.vocab_size,
+            self.token_embedding,
+            self.dropout,
+            self.attention_dropout,
+            self.relu_dropout,
+            self.pad_token_idx,
+            self.learn_positional_embeddings,
+            self.embeddings_scale,
+            self.reduction,
+            self.n_positions
+        )
+        self.decoder = TransformerDecoder(
+            self.n_heads,
+            self.n_layers,
+            self.token_emb_dim,
+            self.ffn_size,
+            self.vocab_size,
+            self.token_embedding,
+            self.dropout,
+            self.attention_dropout,
+            self.relu_dropout,
+            self.embeddings_scale,
+            self.learn_positional_embeddings,
+            self.pad_token_idx,
+            self.n_positions
+        )
+        self.user_proj_1 = nn.Linear(self.user_emb_dim, self.user_proj_dim)
+        self.user_proj_2 = nn.Linear(self.user_proj_dim, self.vocab_size)
+        self.conv_loss = nn.CrossEntropyLoss(ignore_index=self.pad_token_idx)
+        logger.debug('[Build conversation layer]')
+
     def encode_user(self, entity_lists, kg_embedding):
         user_repr_list = []
         for entity_list in entity_lists:
@@ -106,6 +144,116 @@ class KBRDModel(torch.nn.Module):
         logits = F.linear(user_embedding, token_embedding, self.rec_bias.bias)
         loss = self.rec_loss(logits, labels)
         return logits, labels, loss
+
+    def _starts(self, batch_size):
+        """Return bsz start tokens."""
+        return self.START.detach().expand(batch_size, 1)
+
+    def decode_forced(self, encoder_states, user_embedding, resp):
+        bsz = resp.size(0)
+        seqlen = resp.size(1)
+        inputs = resp.narrow(1, 0, seqlen - 1)
+        inputs = torch.cat([self._starts(bsz), inputs], 1)
+        latent, _ = self.decoder(inputs, encoder_states)
+        token_logits = F.linear(latent, self.token_embedding.weight)
+        user_logits = self.user_proj_2(torch.relu(self.user_proj_1(user_embedding))).unsqueeze(1)
+        sum_logits = token_logits + user_logits
+        _, preds = sum_logits.max(dim=-1)
+        return sum_logits, preds
+
+    def decode_greedy(self, encoder_states, user_embedding):
+
+        bsz = encoder_states[0].shape[0]
+        xs = self._starts(bsz)
+        incr_state = None
+        logits = []
+        for i in range(self.longest_label):
+            scores, incr_state = self.decoder(xs, encoder_states, incr_state)  # incr_state is always None
+            scores = scores[:, -1:, :]
+            token_logits = F.linear(scores, self.token_embedding.weight)
+            user_logits = self.user_proj_2(torch.relu(self.user_proj_1(user_embedding))).unsqueeze(1)
+            sum_logits = token_logits + user_logits
+            probs, preds = sum_logits.max(dim=-1)
+            logits.append(scores)
+            xs = torch.cat([xs, preds], dim=1)
+            # check if everyone has generated an end token
+            all_finished = ((xs == self.end_token_idx).sum(dim=1) > 0).sum().item() == bsz
+            if all_finished:
+                break
+        logits = torch.cat(logits, 1)
+        return logits, xs
+
+    def decode_beam_search(self, encoder_states, user_embedding, beam=4):
+        bsz = encoder_states[0].shape[0]
+        xs = self._starts(bsz).reshape(1, bsz, -1)  # (batch_size, _)
+        sequences = [[[list(), list(), 1.0]]] * bsz
+        for i in range(self.longest_label):
+            # at beginning there is 1 candidate, when i!=0 there are 4 candidates
+            if i != 0:
+                xs = []
+                for d in range(len(sequences[0])):
+                    for j in range(bsz):
+                        text = sequences[j][d][0]
+                        xs.append(text)
+                xs = torch.stack(xs).reshape(beam, bsz, -1)  # (beam, batch_size, _)
+
+            with torch.no_grad():
+                if i == 1:
+                    user_embedding = user_embedding.repeat(beam, 1)
+                    encoder_states = (encoder_states[0].repeat(beam, 1, 1),
+                                      encoder_states[1].repeat(beam, 1, 1))
+
+                scores, _ = self.decoder(xs.reshape(len(sequences[0]) * bsz, -1), encoder_states)
+                scores = scores[:, -1:, :]
+                token_logits = F.linear(scores, self.token_embedding.weight)
+                user_logits = self.user_proj_2(torch.relu(self.user_proj_1(user_embedding))).unsqueeze(1)
+                sum_logits = token_logits + user_logits
+
+            logits = sum_logits.reshape(len(sequences[0]), bsz, 1, -1)
+            scores = scores.reshape(len(sequences[0]), bsz, 1, -1)
+            logits = torch.nn.functional.softmax(logits)  # turn into probabilities,in case of negative numbers
+            probs, preds = logits.topk(beam, dim=-1)
+            # (candeidate, bs, 1 , beam) during first loop, candidate=1, otherwise candidate=beam
+
+            for j in range(bsz):
+                all_candidates = []
+                for n in range(len(sequences[j])):
+                    for k in range(beam):
+                        prob = sequences[j][n][2]
+                        score = sequences[j][n][1]
+                        if score == []:
+                            score_tmp = scores[n][j][0].unsqueeze(0)
+                        else:
+                            score_tmp = torch.cat((score, scores[n][j][0].unsqueeze(0)), dim=0)
+                        seq_tmp = torch.cat((xs[n][j].reshape(-1), preds[n][j][0][k].reshape(-1)))
+                        candidate = [seq_tmp, score_tmp, prob * probs[n][j][0][k]]
+                        all_candidates.append(candidate)
+                ordered = sorted(all_candidates, key=lambda tup: tup[2], reverse=True)
+                sequences[j] = ordered[:beam]
+
+            # check if everyone has generated an end token
+            all_finished = ((xs == self.end_token_idx).sum(dim=1) > 0).sum().item() == bsz
+            if all_finished:
+                break
+        logits = torch.stack([seq[0][1] for seq in sequences])
+        xs = torch.stack([seq[0][0] for seq in sequences])
+        return logits, xs
+
+    def converse(self, batch, mode):
+        context_tokens, context_entities, response = batch['context_tokens'], batch['context_entities'], batch[
+            'response']
+        kg_embedding = self.kg_encoder(None, self.edge_idx, self.edge_type)
+        user_embedding = self.encode_user(context_entities, kg_embedding)
+        encoder_state = self.dialog_encoder(context_tokens)
+        if mode != 'test':
+            self.longest_label = max(self.longest_label, response.shape[1])
+            logits, preds = self.decode_forced(encoder_state, user_embedding, response)
+            logits = logits.view(-1, logits.shape[-1])
+            labels = response.view(-1)
+            return self.conv_loss(logits, labels), preds
+        else:
+            _, preds = self.decode_greedy(encoder_state, user_embedding)
+            return preds
 
 #    def _starts(self, batch_size):
 #        """Return bsz start tokens."""

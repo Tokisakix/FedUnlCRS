@@ -23,6 +23,19 @@ class ReDialRecModel(torch.nn.Module):
         self.autorec_g = model_config['autorec_g']
         self.emb_dim = model_config["emb_dim"]
         self.n_item = n_item
+        self.context_truncate = opt['context_truncate']
+        self.response_truncate = opt['response_truncate']
+        self.pad_id = vocab['pad']
+        
+        self.utterance_encoder_hidden_size = opt['utterance_encoder_hidden_size']
+        self.dialog_encoder_hidden_size = opt['dialog_encoder_hidden_size']
+        self.dialog_encoder_num_layers = opt['dialog_encoder_num_layers']
+        self.use_dropout = opt['use_dropout']
+        self.dropout = opt['dropout']
+        # SwitchingDecoder
+        self.decoder_hidden_size = opt['decoder_hidden_size']
+        self.decoder_num_layers = opt['decoder_num_layers']
+        self.decoder_embedding_dim = opt['decoder_embedding_dim']
         self.build_model()
 
 
@@ -55,6 +68,27 @@ class ReDialRecModel(torch.nn.Module):
         self.rec_bias = torch.nn.Linear(self.emb_dim, self.n_entity)
         self.entity_embedding = torch.nn.Embedding(self.n_item, self.emb_dim, 0)
         self.item_embedding = torch.nn.Embedding(self.n_item, self.emb_dim, 0)
+
+        # add
+        self.encoder = HRNN(
+            embedding=embedding,
+            utterance_encoder_hidden_size=self.utterance_encoder_hidden_size,
+            dialog_encoder_hidden_size=self.dialog_encoder_hidden_size,
+            dialog_encoder_num_layers=self.dialog_encoder_num_layers,
+            use_dropout=self.use_dropout,
+            dropout=self.dropout,
+            pad_token_idx=self.pad_token_idx
+        )
+
+        self.decoder = SwitchingDecoder(
+            hidden_size=self.decoder_hidden_size,
+            context_size=self.dialog_encoder_hidden_size,
+            num_layers=self.decoder_num_layers,
+            vocab_size=self.vocab_size,
+            embedding=embedding,
+            pad_token_idx=self.pad_token_idx
+        )
+        self.loss = nn.CrossEntropyLoss(ignore_index=self.pad_token_idx)
 
     def rec_forward(self, batch_data:List[Dict], item_edger:Dict, entity_edger:Dict, word_edger:Dict):
         """
@@ -91,3 +125,44 @@ class ReDialRecModel(torch.nn.Module):
         logits = self.decoder(combined_embedding)
         loss = self.loss(logits, labels)
         return logits, labels, loss
+
+    
+    #add
+    def forward(self, batch, mode):
+        """
+        Args:
+            batch: ::
+
+                {
+                    'context': (batch_size, max_context_length, max_utterance_length),
+                    'context_lengths': (batch_size),
+                    'utterance_lengths': (batch_size, max_context_length),
+                    'request': (batch_size, max_utterance_length),
+                    'request_lengths': (batch_size),
+                    'response': (batch_size, max_utterance_length)
+                }
+
+        """
+        assert mode in ('train', 'valid', 'test')
+        if mode == 'train':
+            self.train()
+        else:
+            self.eval()
+
+        context = batch['context']
+        utterance_lengths = batch['utterance_lengths']
+        context_lengths = batch['context_lengths']
+        context_state = self.encoder(context, utterance_lengths,
+                                     context_lengths)  # (batch_size, context_encoder_hidden_size)
+
+        request = batch['request']
+        request_lengths = batch['request_lengths']
+        log_probs = self.decoder(request, request_lengths,
+                                 context_state)  # (batch_size, max_utterance_length, vocab_size + 1)
+        preds = log_probs.argmax(dim=-1)  # (batch_size, max_utterance_length)
+
+        log_probs = log_probs.view(-1, log_probs.shape[-1])
+        response = batch['response'].view(-1)
+        loss = self.loss(log_probs, response)
+
+        return loss, preds

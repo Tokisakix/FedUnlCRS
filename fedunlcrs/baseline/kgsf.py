@@ -134,6 +134,48 @@ class KGSFModel(torch.nn.Module):
 
         logger.debug('[Finish build rec layer]')
 
+    def _build_conversation_layer(self):
+        self.register_buffer('START', torch.tensor([self.start_token_idx], dtype=torch.long))
+        self.conv_encoder = TransformerEncoder(
+            n_heads=self.n_heads,
+            n_layers=self.n_layers,
+            embedding_size=self.token_emb_dim,
+            ffn_size=self.ffn_size,
+            vocabulary_size=self.vocab_size,
+            embedding=self.token_embedding,
+            dropout=self.dropout,
+            attention_dropout=self.attention_dropout,
+            relu_dropout=self.relu_dropout,
+            padding_idx=self.pad_token_idx,
+            learn_positional_embeddings=self.learn_positional_embeddings,
+            embeddings_scale=self.embeddings_scale,
+            reduction=self.reduction,
+            n_positions=self.n_positions,
+        )
+
+        self.conv_entity_norm = nn.Linear(self.kg_emb_dim, self.ffn_size)
+        self.conv_entity_attn_norm = nn.Linear(self.kg_emb_dim, self.ffn_size)
+        self.conv_word_norm = nn.Linear(self.kg_emb_dim, self.ffn_size)
+        self.conv_word_attn_norm = nn.Linear(self.kg_emb_dim, self.ffn_size)
+
+        self.copy_norm = nn.Linear(self.ffn_size * 3, self.token_emb_dim)
+        self.copy_output = nn.Linear(self.token_emb_dim, self.vocab_size)
+        self.copy_mask = torch.as_tensor(np.load(os.path.join(self.dpath, "copy_mask.npy")).astype(bool),
+                                         ).to(self.device)
+
+        self.conv_decoder = TransformerDecoderKG(
+            self.n_heads, self.n_layers, self.token_emb_dim, self.ffn_size, self.vocab_size,
+            embedding=self.token_embedding,
+            dropout=self.dropout,
+            attention_dropout=self.attention_dropout,
+            relu_dropout=self.relu_dropout,
+            embeddings_scale=self.embeddings_scale,
+            learn_positional_embeddings=self.learn_positional_embeddings,
+            padding_idx=self.pad_token_idx,
+            n_positions=self.n_positions
+        )
+        self.conv_loss = nn.CrossEntropyLoss(ignore_index=self.pad_token_idx)
+
     def rec_forward(self, batch_data:List[Dict], item_edger:Dict, entity_edger:Dict, word_edger:Dict):
         related_entity = [meta_data["entity"] for meta_data in batch_data]
         related_word = [meta_data["word"] for meta_data in batch_data]
@@ -171,3 +213,163 @@ class KGSFModel(torch.nn.Module):
             info_loss = self.infomax_loss(info_predict, labels) / info_loss_mask
 
         return rec_scores, None, rec_loss
+
+    def _starts(self, batch_size):
+        """Return bsz start tokens."""
+        return self.START.detach().expand(batch_size, 1)
+
+    def _decode_forced_with_kg(self, token_encoding, entity_reps, entity_emb_attn, entity_mask,
+                               word_reps, word_emb_attn, word_mask, response):
+        batch_size, seq_len = response.shape
+        start = self._starts(batch_size)
+        inputs = torch.cat((start, response[:, :-1]), dim=-1).long()
+
+        dialog_latent, _ = self.conv_decoder(inputs, token_encoding, word_reps, word_mask,
+                                             entity_reps, entity_mask)  # (bs, seq_len, dim)
+        entity_latent = entity_emb_attn.unsqueeze(1).expand(-1, seq_len, -1)
+        word_latent = word_emb_attn.unsqueeze(1).expand(-1, seq_len, -1)
+        copy_latent = self.copy_norm(
+            torch.cat((entity_latent, word_latent, dialog_latent), dim=-1))  # (bs, seq_len, dim)
+
+        copy_logits = self.copy_output(copy_latent) * self.copy_mask.unsqueeze(0).unsqueeze(
+            0)  # (bs, seq_len, vocab_size)
+        gen_logits = F.linear(dialog_latent, self.token_embedding.weight)  # (bs, seq_len, vocab_size)
+        sum_logits = copy_logits + gen_logits
+        preds = sum_logits.argmax(dim=-1)
+        return sum_logits, preds
+
+    def _decode_greedy_with_kg(self, token_encoding, entity_reps, entity_emb_attn, entity_mask,
+                               word_reps, word_emb_attn, word_mask):
+        batch_size = token_encoding[0].shape[0]
+        inputs = self._starts(batch_size).long()
+        incr_state = None
+        logits = []
+        for _ in range(self.response_truncate):
+            dialog_latent, incr_state = self.conv_decoder(inputs, token_encoding, word_reps, word_mask,
+                                                          entity_reps, entity_mask, incr_state)
+            dialog_latent = dialog_latent[:, -1:, :]  # (bs, 1, dim)
+            db_latent = entity_emb_attn.unsqueeze(1)
+            concept_latent = word_emb_attn.unsqueeze(1)
+            copy_latent = self.copy_norm(torch.cat((db_latent, concept_latent, dialog_latent), dim=-1))
+
+            copy_logits = self.copy_output(copy_latent) * self.copy_mask.unsqueeze(0).unsqueeze(0)
+            gen_logits = F.linear(dialog_latent, self.token_embedding.weight)
+            sum_logits = copy_logits + gen_logits
+            preds = sum_logits.argmax(dim=-1).long()
+            logits.append(sum_logits)
+            inputs = torch.cat((inputs, preds), dim=1)
+
+            finished = ((inputs == self.end_token_idx).sum(dim=-1) > 0).sum().item() == batch_size
+            if finished:
+                break
+        logits = torch.cat(logits, dim=1)
+        return logits, inputs
+
+    def _decode_beam_search_with_kg(self, token_encoding, entity_reps, entity_emb_attn, entity_mask,
+                                    word_reps, word_emb_attn, word_mask, beam=4):
+        batch_size = token_encoding[0].shape[0]
+        inputs = self._starts(batch_size).long().reshape(1, batch_size, -1)
+        incr_state = None
+
+        sequences = [[[list(), list(), 1.0]]] * batch_size
+        for i in range(self.response_truncate):
+            if i == 1:
+                token_encoding = (token_encoding[0].repeat(beam, 1, 1),
+                                  token_encoding[1].repeat(beam, 1, 1))
+                entity_reps = entity_reps.repeat(beam, 1, 1)
+                entity_emb_attn = entity_emb_attn.repeat(beam, 1)
+                entity_mask = entity_mask.repeat(beam, 1)
+                word_reps = word_reps.repeat(beam, 1, 1)
+                word_emb_attn = word_emb_attn.repeat(beam, 1)
+                word_mask = word_mask.repeat(beam, 1)
+
+            # at beginning there is 1 candidate, when i!=0 there are 4 candidates
+            if i != 0:
+                inputs = []
+                for d in range(len(sequences[0])):
+                    for j in range(batch_size):
+                        text = sequences[j][d][0]
+                        inputs.append(text)
+                inputs = torch.stack(inputs).reshape(beam, batch_size, -1)  # (beam, batch_size, _)
+
+            with torch.no_grad():
+                dialog_latent, incr_state = self.conv_decoder(
+                    inputs.reshape(len(sequences[0]) * batch_size, -1),
+                    token_encoding, word_reps, word_mask,
+                    entity_reps, entity_mask, incr_state
+                )
+                dialog_latent = dialog_latent[:, -1:, :]  # (bs, 1, dim)
+                db_latent = entity_emb_attn.unsqueeze(1)
+                concept_latent = word_emb_attn.unsqueeze(1)
+                copy_latent = self.copy_norm(torch.cat((db_latent, concept_latent, dialog_latent), dim=-1))
+
+                copy_logits = self.copy_output(copy_latent) * self.copy_mask.unsqueeze(0).unsqueeze(0)
+                gen_logits = F.linear(dialog_latent, self.token_embedding.weight)
+                sum_logits = copy_logits + gen_logits
+
+            logits = sum_logits.reshape(len(sequences[0]), batch_size, 1, -1)
+            # turn into probabilities,in case of negative numbers
+            probs, preds = torch.nn.functional.softmax(logits).topk(beam, dim=-1)
+
+            # (candeidate, bs, 1 , beam) during first loop, candidate=1, otherwise candidate=beam
+
+            for j in range(batch_size):
+                all_candidates = []
+                for n in range(len(sequences[j])):
+                    for k in range(beam):
+                        prob = sequences[j][n][2]
+                        logit = sequences[j][n][1]
+                        if logit == []:
+                            logit_tmp = logits[n][j][0].unsqueeze(0)
+                        else:
+                            logit_tmp = torch.cat((logit, logits[n][j][0].unsqueeze(0)), dim=0)
+                        seq_tmp = torch.cat((inputs[n][j].reshape(-1), preds[n][j][0][k].reshape(-1)))
+                        candidate = [seq_tmp, logit_tmp, prob * probs[n][j][0][k]]
+                        all_candidates.append(candidate)
+                ordered = sorted(all_candidates, key=lambda tup: tup[2], reverse=True)
+                sequences[j] = ordered[:beam]
+
+            # check if everyone has generated an end token
+            all_finished = ((inputs == self.end_token_idx).sum(dim=1) > 0).sum().item() == batch_size
+            if all_finished:
+                break
+        logits = torch.stack([seq[0][1] for seq in sequences])
+        inputs = torch.stack([seq[0][0] for seq in sequences])
+        return logits, inputs
+
+    def converse(self, batch, mode):
+        context_tokens, context_entities, context_words, response = batch
+
+        entity_graph_representations = self.entity_encoder(None, self.entity_edge_idx, self.entity_edge_type)
+        word_graph_representations = self.word_encoder(self.word_kg_embedding.weight, self.word_edges)
+
+        entity_padding_mask = context_entities.eq(self.pad_entity_idx)  # (bs, entity_len)
+        word_padding_mask = context_words.eq(self.pad_word_idx)  # (bs, seq_len)
+
+        entity_representations = entity_graph_representations[context_entities]
+        word_representations = word_graph_representations[context_words]
+
+        entity_attn_rep = self.entity_self_attn(entity_representations, entity_padding_mask)
+        word_attn_rep = self.word_self_attn(word_representations, word_padding_mask)
+
+        # encoder-decoder
+        tokens_encoding = self.conv_encoder(context_tokens)
+        conv_entity_emb = self.conv_entity_attn_norm(entity_attn_rep)
+        conv_word_emb = self.conv_word_attn_norm(word_attn_rep)
+        conv_entity_reps = self.conv_entity_norm(entity_representations)
+        conv_word_reps = self.conv_word_norm(word_representations)
+        if mode != 'test':
+            logits, preds = self._decode_forced_with_kg(tokens_encoding, conv_entity_reps, conv_entity_emb,
+                                                        entity_padding_mask,
+                                                        conv_word_reps, conv_word_emb, word_padding_mask,
+                                                        response)
+
+            logits = logits.view(-1, logits.shape[-1])
+            response = response.view(-1)
+            loss = self.conv_loss(logits, response)
+            return loss, preds
+        else:
+            logits, preds = self._decode_greedy_with_kg(tokens_encoding, conv_entity_reps, conv_entity_emb,
+                                                        entity_padding_mask,
+                                                        conv_word_reps, conv_word_emb, word_padding_mask)
+            return preds
