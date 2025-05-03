@@ -14,10 +14,7 @@ class GraphUnlSampler:
         self.word_popularity = {}
         self.id_to_community = self.build_id_to_client()
         self.cal_hypergraph_popularity()
-<<<<<<< HEAD
         self.unlearn_topk()
-=======
->>>>>>> e866c0a69be4a89a903fd4a8bb0892e96fdb0ff7
         return
     
     def build_id_to_client(self) -> Dict:
@@ -130,7 +127,6 @@ class GraphUnlSampler:
         self.entity_hypergraph_popularity = func(self.entity_hypergraph, self.entity_popularity)
         self.word_hypergraph_popularity = func(self.word_hypergraph, self.word_popularity)
         return
-<<<<<<< HEAD
     
     def unlearn_topk(self) -> None:
         sample_size = self.config.topk
@@ -147,8 +143,6 @@ class GraphUnlSampler:
         top_word_hypergraph = sorted(enumerate(self.word_hypergraph_popularity), key=lambda x: x[1], reverse=True)
         self.top_word_hypergraph_ids = [idx for idx in top_word_hypergraph]
         return 
-=======
->>>>>>> e866c0a69be4a89a903fd4a8bb0892e96fdb0ff7
 
     def sample(self, layer:str, topk:int, methon:str) -> Tuple[List[int], List[int], Dict]:
         id_to_client = self.id_to_community[layer]
