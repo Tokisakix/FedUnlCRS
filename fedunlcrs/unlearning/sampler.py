@@ -13,6 +13,7 @@ class GraphUnlSampler:
         self.entity_popularity = {}
         self.word_popularity = {}
         self.id_to_community = self.build_id_to_client()
+        self.cal_hypergraph_popularity()
         return
     
     def build_id_to_client(self) -> Dict:
@@ -24,6 +25,11 @@ class GraphUnlSampler:
         item_hypergraph_id_to_client = {}
         entity_hypergraph_id_to_client = {}
         word_hypergraph_id_to_client = {}
+
+        # 超图内容
+        self.item_hypergraph = []
+        self.entity_hypergraph = []
+        self.word_hypergraph = []
         
         # build graph unlearning id to client
         for i in range(self.config.n_client):
@@ -47,9 +53,9 @@ class GraphUnlSampler:
                 word_id_to_client[word_id] = i
         
         # build hypergraph unlearning id to client
-        item_hypergraph_id = 0
-        entity_hypergraph_id = 0
-        word_hypergraph_id = 0
+        self.item_hypergraph_id = 0
+        self.entity_hypergraph_id = 0
+        self.word_hypergraph_id = 0
         raw_train_dataset, _, _ = get_dataset(self.config.dataset_name)
         for conv in raw_train_dataset:
             conv_id = int(conv["conv_id"])
@@ -57,28 +63,38 @@ class GraphUnlSampler:
                 continue
             client_id = conv_id_to_client[conv_id]
 
+            # 记录具体的超图内容
             conv_item_list = set()
             conv_entity_list = set()
             conv_word_list = set()
             for dialog in conv["dialogs"]:
+                meta_item_hypergraph = set()
+                meta_entity_hypergraph = set()
+                meta_word_hypergraph = set()
                 for item in dialog["item"]:
                     if item not in conv_item_list:
-                        item_hypergraph_id_to_client[item_hypergraph_id] = client_id
+                        item_hypergraph_id_to_client[self.item_hypergraph_id] = client_id
                         conv_item_list.add(item)
+                        meta_item_hypergraph.add(item)
                         self.item_popularity[item] = self.item_popularity.get(item, 0) + 1
-                        item_hypergraph_id += 1
+                        self.item_hypergraph_id += 1
+                        self.item_hypergraph.append(list(meta_item_hypergraph))
                 for entity in dialog["entity"]:
                     if entity not in conv_entity_list:
-                        entity_hypergraph_id_to_client[entity_hypergraph_id] = client_id
+                        entity_hypergraph_id_to_client[self.entity_hypergraph_id] = client_id
                         conv_entity_list.add(entity)
+                        meta_entity_hypergraph.add(entity)
                         self.entity_popularity[entity] = self.entity_popularity.get(entity, 0) + 1
-                        entity_hypergraph_id += 1
+                        self.entity_hypergraph_id += 1
+                        self.entity_hypergraph.append(list(meta_entity_hypergraph))
                 for word in dialog["word"]:
                     if word not in conv_word_list:
-                        word_hypergraph_id_to_client[word_hypergraph_id] = client_id
+                        word_hypergraph_id_to_client[self.word_hypergraph_id] = client_id
                         conv_word_list.add(word)
+                        meta_word_hypergraph.add(word)
                         self.word_popularity[word] = self.word_popularity.get(word, 0) + 1
-                        word_hypergraph_id += 1
+                        self.word_hypergraph_id += 1
+                        self.word_hypergraph.append(list(meta_word_hypergraph))
 
         return {
             "user": user_id_to_client,
@@ -90,6 +106,26 @@ class GraphUnlSampler:
             "entity_hypergraph": entity_hypergraph_id_to_client,
             "word_hypergraph": word_hypergraph_id_to_client,
         }
+    
+    def cal_hypergraph_popularity(self) -> None:
+        assert len(self.item_hypergraph) == self.item_hypergraph_id
+        assert len(self.entity_hypergraph) == self.entity_hypergraph_id
+        assert len(self.word_hypergraph) == self.word_hypergraph_id
+
+        def func(hypergraph:List[List[int]], popularity:Dict[int, int]) -> List[float]:
+            hypergraph_popularity = []
+            for meta_hypergraph in hypergraph:
+                res = 0.0
+                for item in meta_hypergraph:
+                    res += popularity.get(item, 0)
+                res /= len(meta_hypergraph)
+                hypergraph_popularity.append(res)
+            return hypergraph_popularity
+        
+        self.item_hypergraph_popularity = func(self.item_hypergraph, self.item_popularity)
+        self.entity_hypergraph_popularity = func(self.entity_hypergraph, self.entity_popularity)
+        self.word_hypergraph_popularity = func(self.word_hypergraph, self.word_popularity)
+        return
 
     def sample(self, layer:str, topk:int, methon:str) -> Tuple[List[int], List[int], Dict]:
         id_to_client = self.id_to_community[layer]

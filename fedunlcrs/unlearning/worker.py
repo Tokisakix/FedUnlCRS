@@ -233,7 +233,7 @@ class FedUnlWorker:
             return
         
         time_entry = {
-            "epoch": self.config.epochs,
+            "epoch": self.epoch,
             "user": {"time_avg": 0.0, "time_std": 0.0},
             "conv": {"time_avg": 0.0, "time_std": 0.0},
             "item": {"time_avg": 0.0, "time_std": 0.0},
