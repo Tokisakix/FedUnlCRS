@@ -2,23 +2,9 @@ import torch
 from loguru import logger
 from torch import nn
 from .rec import SASREC
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 class SASRECModel(torch.nn.Module):
-    """
-        
-    Attributes:
-        hidden_dropout_prob: A float indicating the dropout rate to dropout hidden state in SASRec.
-        initializer_range: A float indicating the range of parameters initiation in SASRec.
-        hidden_size: A integer indicating the size of hidden state in SASRec.
-        max_seq_length: A integer indicating the max interaction history length.
-        item_size: A integer indicating the number of items.
-        num_attention_heads: A integer indicating the head number in SASRec.
-        attention_probs_dropout_prob: A float indicating the dropout rate in attention layers.
-        hidden_act: A string indicating the activation function type in SASRec.
-        num_hidden_layers: A integer indicating the number of hidden layers in SASRec.
-
-    """
 
     def __init__(self, n_item:int, n_entity:int, n_word:int, model_config:Dict, device:str):
         super(SASRECModel, self).__init__()
@@ -32,6 +18,7 @@ class SASRECModel(torch.nn.Module):
         self.hidden_act = model_config['hidden_act']
         self.num_hidden_layers = model_config['num_hidden_layers']
         self.device = device
+        self.n_word = n_word
         self.build_model()
 
     def build_model(self):
@@ -42,14 +29,22 @@ class SASRECModel(torch.nn.Module):
                              self.num_attention_heads,
                              self.attention_probs_dropout_prob,
                              self.hidden_act, self.num_hidden_layers)
+        self.con_SASREC = SASREC(self.hidden_dropout_prob, self.device,
+                             self.initializer_range, self.hidden_size,
+                             self.max_seq_length, self.n_word,
+                             self.num_attention_heads,
+                             self.attention_probs_dropout_prob,
+                             self.hidden_act, self.num_hidden_layers)
         self.mlp = nn.Linear(self.hidden_size, self.item_size)
+        self.con = nn.Linear(self.hidden_size, self.n_word)
 
         # this loss may conduct to some weakness
         self.rec_loss = nn.CrossEntropyLoss()
 
         logger.debug('[Finish build rec layer]')
     
-    def rec_forward(self, batch_data:List[Dict], item_edger:Dict, entity_edger:Dict, word_edger:Dict):
+    def rec_forward(self, batch_data:List[Dict], 
+                    item_edger:Dict, entity_edger:Dict, word_edger:Dict):
         input_ids, input_mask, labels = [], [], []
 
         for meta_data in batch_data:
@@ -81,3 +76,38 @@ class SASRECModel(torch.nn.Module):
         rec_loss = self.rec_loss(rec_scores, labels)
 
         return rec_scores, rec_scores, rec_loss
+    
+    def con_forward(
+            self, batch_data:List[Dict],
+            item_edger:Dict, entity_edger:Dict, word_edger:Dict
+        ) -> Tuple[torch.LongTensor, torch.LongTensor, torch.FloatTensor]:
+        labels = []
+        logits = []
+
+        for meta_data in batch_data:
+            item_seq = meta_data["text"]
+
+            if len(item_seq) > self.max_seq_length:
+                item_seq = item_seq[-self.max_seq_length:]
+            padding_len = self.max_seq_length - len(item_seq)
+
+            input_ids = item_seq + [0] * padding_len
+            input_mask = [1] * len(item_seq) + [0] * padding_len
+            input_ids = torch.LongTensor([input_ids]).to(self.device)
+            input_mask = torch.LongTensor([input_mask]).to(self.device)
+
+            label = torch.LongTensor(meta_data["text"][1:]).to(self.device)
+            labels.append(label)
+            
+            #last_hidden_state = self.bert(input_ids, attention_mask=input_mask).last_hidden_state[0]
+            con_sequence_output = self.con_SASREC(input_ids, input_mask)
+            logit = self.con(con_sequence_output)[0, :label.size(0)]
+            logits.append(logit)
+
+        labels = torch.concatenate(labels, dim=0)
+        logits = torch.concatenate(logits, dim=0)
+        loss = torch.nn.CrossEntropyLoss()(logits, labels)
+
+        response = torch.argmax(logits, dim=-1)
+
+        return response, labels, loss
