@@ -355,7 +355,7 @@ class ConversationModule(torch.nn.Module):
         self.pad_token_idx = 0
         self.user_proj_dim = 512
         self.device = device
-        self.max_seq_length = 128
+        self.max_seq_length = 256
         self.build_conversation_layer()
         return
     

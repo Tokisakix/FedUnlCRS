@@ -57,14 +57,15 @@ class FedUnlWorker:
             (rank + 1) * self.config.n_client_per_proc,
         ))
 
+        self.build_loader()
+        self.build_model()
+
         if self.rank == 0:
-            self.sampler = GraphUnlSampler(self.config)
+            self.sampler = GraphUnlSampler(self.config, self.raw_train_dataset)
             os.makedirs(self.config.save_path, exist_ok=True)
             os.makedirs(self.config.evaluate_path, exist_ok=True)
 
         self.epoch : int = 0
-        self.build_loader()
-        self.build_model()
         self.full_data = {
             "model": self.config.model_name,
             "dataset": getattr(self.dataloaders[0], "dataset_name", "unknown"),
@@ -125,6 +126,7 @@ class FedUnlWorker:
         self.n_word = self.dataloaders[0].n_word
         self.start_idx = self.dataloaders[0].start_idx
         self.end_idx = self.dataloaders[0].end_idx
+        self.raw_train_dataset = self.dataloaders[0].raw_train_dataset
         return
     
     def build_model(self) -> None:
