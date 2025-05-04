@@ -1,17 +1,18 @@
+import heapq
 import os
 import json
 import random
 from typing import Dict, List, Tuple
 
 from .config import FedUnlConfig
-from fedunlcrs.utils import get_dataset
 
 class GraphUnlSampler:
-    def __init__(self, config:FedUnlConfig) -> None:
+    def __init__(self, config:FedUnlConfig, raw_train_dataset:List[Dict]) -> None:
         self.config = config
         self.item_popularity = {}
         self.entity_popularity = {}
         self.word_popularity = {}
+        self.raw_train_dataset = raw_train_dataset
         self.id_to_community = self.build_id_to_client()
         self.cal_hypergraph_popularity()
         self.unlearn_topk()
@@ -27,44 +28,39 @@ class GraphUnlSampler:
         entity_hypergraph_id_to_client = {}
         word_hypergraph_id_to_client = {}
 
-        # 超图内容
         self.item_hypergraph = []
         self.entity_hypergraph = []
         self.word_hypergraph = []
         
-        # build graph unlearning id to client
         for i in range(self.config.n_client):
             file_path = os.path.join(self.config.load_path, f"client_{i}_mask.json")
             with open(file_path, "r", encoding="utf-8") as f:
                 client_data = json.load(f)
-            
-            for user_id in client_data.get("user_mask", []):
+            client_data_get = client_data.get
+            for user_id in client_data_get("user_mask", []):
                 user_id_to_client[user_id] = i
             
-            for conv_id in client_data.get("conv_mask", []):
+            for conv_id in client_data_get("conv_mask", []):
                 conv_id_to_client[conv_id] = i
             
-            for item_id in client_data.get("item_mask", []):
+            for item_id in client_data_get("item_mask", []):
                 item_id_to_client[item_id] = i
             
-            for entity_id in client_data.get("entity_mask", []):
+            for entity_id in client_data_get("entity_mask", []):
                 entity_id_to_client[entity_id] = i
             
-            for word_id in client_data.get("word_mask", []):
+            for word_id in client_data_get("word_mask", []):
                 word_id_to_client[word_id] = i
         
-        # build hypergraph unlearning id to client
         self.item_hypergraph_id = 0
         self.entity_hypergraph_id = 0
         self.word_hypergraph_id = 0
-        raw_train_dataset, _, _ = get_dataset(self.config.dataset_name)
-        for conv in raw_train_dataset:
+        for conv in self.raw_train_dataset:
             conv_id = int(conv["conv_id"])
             if conv_id not in conv_id_to_client:
                 continue
             client_id = conv_id_to_client[conv_id]
 
-            # 记录具体的超图内容
             conv_item_list = set()
             conv_entity_list = set()
             conv_word_list = set()
@@ -79,7 +75,7 @@ class GraphUnlSampler:
                         meta_item_hypergraph.add(item)
                         self.item_popularity[item] = self.item_popularity.get(item, 0) + 1
                         self.item_hypergraph_id += 1
-                        self.item_hypergraph.append(list(meta_item_hypergraph))
+                        self.item_hypergraph.append(meta_item_hypergraph)
                 for entity in dialog["entity"]:
                     if entity not in conv_entity_list:
                         entity_hypergraph_id_to_client[self.entity_hypergraph_id] = client_id
@@ -87,7 +83,7 @@ class GraphUnlSampler:
                         meta_entity_hypergraph.add(entity)
                         self.entity_popularity[entity] = self.entity_popularity.get(entity, 0) + 1
                         self.entity_hypergraph_id += 1
-                        self.entity_hypergraph.append(list(meta_entity_hypergraph))
+                        self.entity_hypergraph.append(meta_entity_hypergraph)
                 for word in dialog["word"]:
                     if word not in conv_word_list:
                         word_hypergraph_id_to_client[self.word_hypergraph_id] = client_id
@@ -95,7 +91,7 @@ class GraphUnlSampler:
                         meta_word_hypergraph.add(word)
                         self.word_popularity[word] = self.word_popularity.get(word, 0) + 1
                         self.word_hypergraph_id += 1
-                        self.word_hypergraph.append(list(meta_word_hypergraph))
+                        self.word_hypergraph.append(meta_word_hypergraph)
 
         return {
             "user": user_id_to_client,
@@ -113,16 +109,13 @@ class GraphUnlSampler:
         assert len(self.entity_hypergraph) == self.entity_hypergraph_id
         assert len(self.word_hypergraph) == self.word_hypergraph_id
 
-        def func(hypergraph:List[List[int]], popularity:Dict[int, int]) -> List[float]:
-            hypergraph_popularity = []
-            for meta_hypergraph in hypergraph:
-                res = 0.0
-                for item in meta_hypergraph:
-                    res += popularity.get(item, 0)
-                res /= len(meta_hypergraph)
-                hypergraph_popularity.append(res)
-            return hypergraph_popularity
-        
+        def func(hypergraph: List[List[int]], popularity: Dict[int, int]) -> List[float]:
+            get_pop = popularity.get
+            return [
+                sum(get_pop(item, 0) for item in meta) / len(meta) if meta else 0.0
+                for meta in hypergraph
+            ]
+
         self.item_hypergraph_popularity = func(self.item_hypergraph, self.item_popularity)
         self.entity_hypergraph_popularity = func(self.entity_hypergraph, self.entity_popularity)
         self.word_hypergraph_popularity = func(self.word_hypergraph, self.word_popularity)
@@ -130,18 +123,13 @@ class GraphUnlSampler:
     
     def unlearn_topk(self) -> None:
         sample_size = self.config.topk
-        top_items = sorted(self.item_popularity.items(), key=lambda x: x[1], reverse=True)[:sample_size]
-        self.top_item_ids = [item for item, _ in top_items]
-        top_entity = sorted(self.entity_popularity.items(), key=lambda x: x[1], reverse=True)[:sample_size]
-        self.top_entity_ids = [item for item, _ in top_entity]
-        top_word = sorted(self.word_popularity.items(), key=lambda x: x[1], reverse=True)[:sample_size]
-        self.top_word_ids = [item for item, _ in top_word]
-        top_item_hypergraph = sorted(enumerate(self.item_hypergraph_popularity), key=lambda x: x[1], reverse=True)
-        self.top_item_hypergraph_ids = [idx for idx in top_item_hypergraph]
-        top_entity_hypergraph = sorted(enumerate(self.entity_hypergraph_popularity), key=lambda x: x[1], reverse=True)
-        self.top_entity_hypergraph_ids = [idx for idx in top_entity_hypergraph]
-        top_word_hypergraph = sorted(enumerate(self.word_hypergraph_popularity), key=lambda x: x[1], reverse=True)
-        self.top_word_hypergraph_ids = [idx for idx in top_word_hypergraph]
+        self.top_item_ids = [item for item, _ in heapq.nlargest(sample_size, self.item_popularity.items(), key=lambda x: x[1])]
+        self.top_entity_ids = [item for item, _ in heapq.nlargest(sample_size, self.entity_popularity.items(), key=lambda x: x[1])]
+        self.top_word_ids = [item for item, _ in heapq.nlargest(sample_size, self.word_popularity.items(), key=lambda x: x[1])]
+
+        self.top_item_hypergraph_ids = heapq.nlargest(sample_size, self.item_hypergraph_popularity)
+        self.top_entity_hypergraph_ids = heapq.nlargest(sample_size, self.entity_hypergraph_popularity)
+        self.top_word_hypergraph_ids = heapq.nlargest(sample_size, self.word_hypergraph_popularity)
         return 
 
     def sample(self, layer:str, topk:int, methon:str) -> Tuple[List[int], List[int], Dict]:

@@ -15,7 +15,8 @@ class FedUnlDataLoader:
 
         # load raw data
         (raw_train_dataset, raw_valid_dataset, raw_test_dataset), (raw_item_edger, raw_entity_edger, raw_word_edger) = self.load_raw_data()
-        
+        self.raw_train_dataset = raw_train_dataset
+
         # build con token
         self.start_idx = self.word2id["__start__"]
         self.end_idx = self.word2id["__end__"]
