@@ -80,7 +80,6 @@ class FedUnlWorker:
             "unlearning_time": []
         }
 
-
         for _ in range(self.config.epochs):
             proc_train_time = []
             for (model, optimizer, dataloader) in zip(self.models, self.optims, self.dataloaders):
