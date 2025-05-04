@@ -30,15 +30,15 @@ class FedUnlConfig:
         self.emb_dim = args["model_config"]["hycorec"]["emb_dim"]
 
         self.load_path = os.path.join(
-            "save", "partition",
+            "/gz-data/save", "partition",
             f"{self.dataset_name}_{self.partition_methon}_{self.n_client}"
         )
         self.save_path = os.path.join(
-            "save", "unlearning",
+            "/gz-data/save", "unlearning",
             f"{self.model_name}_{self.dataset_name}_{self.unlearning_sample_methon}_{self.ablation_layer}_{self.n_client}_{self.emb_dim}_{self.aggregate_rate}"
         )
         self.evaluate_path = os.path.join(
-            "save", "evaluate",
+            "/gz-data/save", "evaluate",
             f"{self.model_name}_{self.dataset_name}_{self.unlearning_sample_methon}_{self.ablation_layer}_{self.n_client}_{self.emb_dim}_{self.aggregate_rate}"
         )
 

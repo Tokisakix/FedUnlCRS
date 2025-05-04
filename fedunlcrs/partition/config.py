@@ -8,7 +8,7 @@ class PartitionConfig:
 
         self.partition_methon = args["partition_methon"]
         self.partition_num = args["partition_num"]
-        self.save_dir = os.path.join("save", self.task, f"{self.dataset_name}_{self.partition_methon}_{self.partition_num}")
+        self.save_dir = os.path.join("/gz-data/save", self.task, f"{self.dataset_name}_{self.partition_methon}_{self.partition_num}")
 
         self.load_random_config(args)
 
