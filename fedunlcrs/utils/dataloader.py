@@ -1,15 +1,18 @@
 import os
 import json
+import time
+import pickle as pkl
 from typing import Dict, List
-from collections import defaultdict
 
 from fedunlcrs.utils import get_dataset, get_edger
 
 class FedUnlDataLoader:
-    def __init__(self, dataset_name:str, batch_size:int, partition_mask:Dict=None, parition_mode:str=None) -> None:
+    def __init__(self, dataset_name:str, batch_size:int, client_idx:int, partition_mask:Dict=None, parition_mode:str=None, preload_path:str=None) -> None:
         # init variable
         self.dataset_name = dataset_name
         self.batch_size = batch_size
+        self.client_idx = client_idx
+        self.preload_path = preload_path
         self.partition_mask = partition_mask
         self.parition_mode = parition_mode
 
@@ -21,15 +24,27 @@ class FedUnlDataLoader:
         self.start_idx = self.word2id["__start__"]
         self.end_idx = self.word2id["__end__"]
 
-        # build edger
-        self.item_edger = self.build_edger(raw_item_edger, self.item2id, self.n_item)
-        self.entity_edger = self.build_edger(raw_entity_edger, self.entity2id, self.n_entity)
-        self.word_edger = self.build_edger(raw_word_edger, self.word2id, self.n_word)
+        # build edger dataset
+        if preload_path is not None and os.path.isfile(os.path.join(preload_path, ".built")):
+            client_all_data = pkl.load(open(os.path.join(preload_path, f"client_{self.client_idx}_all_data.pkl"), "rb"))
+            (self.item_edger, self.entity_edger, self.word_edger, self.train_dataset, self.valid_dataset, self.test_dataset) = client_all_data
+        else:
+            self.item_edger = self.build_edger(raw_item_edger, self.item2id, self.n_item)
+            self.entity_edger = self.build_edger(raw_entity_edger, self.entity2id, self.n_entity)
+            self.word_edger = self.build_edger(raw_word_edger, self.word2id, self.n_word)
 
-        # build dataset
-        self.train_dataset = self.build_dataset(raw_train_dataset)
-        self.valid_dataset = self.build_dataset(raw_valid_dataset)
-        self.test_dataset = self.build_dataset(raw_test_dataset)
+            self.train_dataset = self.build_dataset(raw_train_dataset)
+            self.valid_dataset = self.build_dataset(raw_valid_dataset)
+            self.test_dataset = self.build_dataset(raw_test_dataset)
+            if preload_path is not None:
+                os.makedirs(preload_path, exist_ok=True)
+                pkl.dump(
+                    (self.item_edger, self.entity_edger, self.word_edger, self.train_dataset, self.valid_dataset, self.test_dataset),
+                    open(os.path.join(preload_path, f"client_{self.client_idx}_all_data.pkl"), "wb")
+                )
+
+                with open(os.path.join(preload_path, ".built"), "w", encoding="utf-8") as built:
+                    built.writelines("Built.")
 
         return
 

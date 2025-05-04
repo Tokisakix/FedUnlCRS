@@ -61,7 +61,7 @@ class FedUnlWorker:
         self.build_model()
 
         if self.rank == 0:
-            self.sampler = GraphUnlSampler(self.config, self.raw_train_dataset)
+            self.sampler = GraphUnlSampler(self.config)
             os.makedirs(self.config.save_path, exist_ok=True)
             os.makedirs(self.config.evaluate_path, exist_ok=True)
 
@@ -117,8 +117,10 @@ class FedUnlWorker:
                 FedUnlDataLoader(
                     self.config.dataset_name,
                     self.config.batch_size,
+                    client_id,
                     json.load(open(os.path.join(self.config.load_path, f"client_{client_id}_mask.json"), "r", encoding="utf-8")),
                     self.config.partition_mode,
+                    self.config.load_path,
                 )
             )
         self.n_item = self.dataloaders[0].n_item
@@ -126,7 +128,6 @@ class FedUnlWorker:
         self.n_word = self.dataloaders[0].n_word
         self.start_idx = self.dataloaders[0].start_idx
         self.end_idx = self.dataloaders[0].end_idx
-        self.raw_train_dataset = self.dataloaders[0].raw_train_dataset
         return
     
     def build_model(self) -> None:
