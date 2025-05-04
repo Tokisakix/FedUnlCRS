@@ -100,7 +100,28 @@ class FedUnlDataLoader:
                     if text in self.word2id:
                         text_id = self.word2id[text]
                         conv_text_list.append(text_id)
-                
+
+                for item in dialog["item"]:
+                    if item in self.item2id:
+                        item_id = self.item2id[item]
+                        if use_mask and self.parition_mode == "item" and item_id not in self.partition_mask["item_mask"]:
+                            continue
+                        conv_item_list.add(item_id)
+
+                for entity in dialog["entity"]:
+                    if entity in self.entity2id:
+                        entity_id = self.entity2id[entity]
+                        if use_mask and self.parition_mode == "entity" and entity_id not in self.partition_mask["entity_mask"]:
+                            continue
+                        conv_entity_list.add(entity_id)
+
+                for word in dialog["word"]:
+                    if word in self.word2id:
+                        word_id = self.word2id[word]
+                        if use_mask and self.parition_mode == "word" and word_id not in self.partition_mask["word_mask"]:
+                            continue
+                        conv_word_list.add(word_id)
+
                 if role == "Recommender":
                     for label in labels:
                         if label in self.item2id:
@@ -115,25 +136,6 @@ class FedUnlDataLoader:
                                 "label": label,
                             }
                             dataset.append(meta_data)
-
-                for item in dialog["item"]:
-                    if item in self.item2id:
-                        item_id = self.item2id[item]
-                        if use_mask and self.parition_mode == "item" and item_id not in self.partition_mask["item_mask"]:
-                            continue
-                        conv_item_list.add(item_id)
-                for entity in dialog["entity"]:
-                    if entity in self.entity2id:
-                        entity_id = self.entity2id[entity]
-                        if use_mask and self.parition_mode == "entity" and entity_id not in self.partition_mask["entity_mask"]:
-                            continue
-                        conv_entity_list.add(entity_id)
-                for word in dialog["word"]:
-                    if word in self.word2id:
-                        word_id = self.word2id[word]
-                        if use_mask and self.parition_mode == "word" and word_id not in self.partition_mask["word_mask"]:
-                            continue
-                        conv_word_list.add(word_id)
 
         return dataset
 

@@ -21,7 +21,7 @@ class SelfAttentionBatch(nn.Module):
 
     def forward(self, h):
         e = torch.matmul(torch.tanh(torch.matmul(h, self.a)), self.b).squeeze(dim=1)
-        attention = F.softmax(e, dim=0)
+        attention = F.sigmoid(e)
         return torch.matmul(attention, h)
     
 class KBRDModel(torch.nn.Module):
@@ -70,7 +70,7 @@ class KBRDModel(torch.nn.Module):
     def encode_user(self, entity_lists, kg_embedding):
         user_repr_list = []
         for entity_list in entity_lists:
-            if entity_list is None:
+            if len(entity_list) == 0:
                 user_repr_list.append(torch.zeros(self.user_emb_dim, device=self.device))
                 continue
             user_repr = kg_embedding[entity_list]

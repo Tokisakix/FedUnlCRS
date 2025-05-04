@@ -8,6 +8,7 @@ class BleuMetric(BaseMetric):
     def __init__(self, k:int) -> None:
         super().__init__()
         self.k     :int = k
+        self.w = 10.0
         self.weight = {
             1: (1.0, ),
             2: (0.5, 0.5),
@@ -29,7 +30,7 @@ class BleuMetric(BaseMetric):
             [label], reponse,
             weights=self.weight,
             smoothing_function=self.smoothie
-        )
+        ) * self.w
         self.alpha += bleu
         self.beta += 1.0
         return

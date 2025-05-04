@@ -180,18 +180,6 @@ class HyCoRec(torch.nn.Module):
         return embedding
     
     def encode_user_repr(self, related_items, related_entities, related_words, tot_item_embedding, tot_entity_embedding, tot_word_embedding):
-        if len(related_items) or len(related_words) == 0:
-            if len(related_entities) == 0:
-                user_repr = torch.zeros(self.user_emb_dim, device=self.device)
-            elif self.pooling == "Attn":
-                user_repr = tot_entity_embedding[related_entities]
-                user_repr = self.kg_attn(user_repr)
-            else:
-                assert self.pooling == "Mean"
-                user_repr = tot_entity_embedding[related_entities]
-                user_repr = torch.mean(user_repr, dim=0)
-            return user_repr
-
         item_embedding = torch.zeros((1, self.kg_emb_dim), device=self.device)
         if len(related_items) > 0:
             items, item_hyper_edge_index = self._get_hypergraph(related_items, self.item_adj)
@@ -226,7 +214,17 @@ class HyCoRec(torch.nn.Module):
     def encode_user(self, batch_related_items, batch_related_entities, batch_related_words, tot_item_embedding, tot_entity_embedding, tot_word_embedding):
         user_repr_list = []
         for related_items, related_entities, related_words in zip(batch_related_items, batch_related_entities, batch_related_words):
-            user_repr = self.encode_user_repr(related_items, related_entities, related_words, tot_item_embedding, tot_entity_embedding, tot_word_embedding)
+            if len(related_items) >= 0 or len(related_words) >= 0:
+                if len(related_entities) == 0:
+                    user_repr = torch.zeros(self.user_emb_dim, device=self.device)
+                elif self.pooling == "Attn":
+                    user_repr = tot_entity_embedding[related_entities]
+                    user_repr = self.kg_attn(user_repr)
+                elif self.pooling == "Mean":
+                    user_repr = tot_entity_embedding[related_entities]
+                    user_repr = torch.mean(user_repr, dim=0)
+            else:
+                user_repr = self.encode_user_repr(related_items, related_entities, related_words, tot_item_embedding, tot_entity_embedding, tot_word_embedding)
             user_repr_list.append(user_repr)
         user_embedding = torch.stack(user_repr_list, dim=0)
         return user_embedding

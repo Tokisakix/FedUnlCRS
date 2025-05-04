@@ -90,6 +90,7 @@ class FedUnlWorker:
             if self.config.n_client > 1:
                 proc_train_time = torch.tensor(proc_train_time).to(self.device)
                 tot_train_time = [torch.zeros_like(proc_train_time).to(self.device) for _ in range(self.config.n_proc)]
+                dist.barrier(device_ids=[self.rank])
                 dist.gather(proc_train_time, tot_train_time if self.rank == 0 else None, 0)
                 self.train_time = [tensor.item() for tensor in torch.concatenate(tot_train_time, dim=0).reshape(-1)]
             else:
@@ -106,6 +107,7 @@ class FedUnlWorker:
             self.aggregate()
 
         if self.config.n_client > 1:
+            dist.barrier(device_ids=[self.rank])
             dist.destroy_process_group()
 
         return
@@ -214,6 +216,7 @@ class FedUnlWorker:
             
             for param_key in proc_state_dict.keys():
                 proc_state_dict[param_key] /= self.config.n_client_per_proc
+                dist.barrier(device_ids=[self.rank])
                 dist.all_reduce(proc_state_dict[param_key])
                 proc_state_dict[param_key] /= self.config.n_proc
 
@@ -223,17 +226,17 @@ class FedUnlWorker:
                     new_client_state_dict[param_key] += self.config.aggregate_rate * (proc_state_dict[param_key] - new_client_state_dict[param_key])
                 model.load_state_dict(new_client_state_dict)
 
-        for (client_id, model) in zip(self.client_ids, self.models):
-            torch.save(
-                model.state_dict(),
-                open(os.path.join(self.config.save_path, f"client_{client_id}_state_dict.pth"), "wb"),
-            )
+        # for (client_id, model) in zip(self.client_ids, self.models):
+        #     torch.save(
+        #         model.state_dict(),
+        #         open(os.path.join(self.config.save_path, f"client_{client_id}_state_dict.pth"), "wb"),
+        #     )
 
-        if self.rank == 0:
-            torch.save(
-                proc_state_dict,
-                open(os.path.join(self.config.save_path, f"global_{self.config.aggregate_methon}_state_dict.pth"), "wb"),
-            )
+        # if self.rank == 0:
+        #     torch.save(
+        #         proc_state_dict,
+        #         open(os.path.join(self.config.save_path, f"global_{self.config.aggregate_methon}_state_dict.pth"), "wb"),
+        #     )
 
         return
     
@@ -301,6 +304,7 @@ class FedUnlWorker:
         if self.config.n_client > 1:
             proc_evaluate_res = torch.tensor(proc_evaluate_res).to(self.device)
             gathered = [torch.zeros_like(proc_evaluate_res).to(self.device) for _ in range(self.config.n_proc)]
+            dist.barrier(device_ids=[self.rank])
             dist.gather(proc_evaluate_res, gathered if self.rank == 0 else None, dst=0)
 
             if self.rank != 0:
