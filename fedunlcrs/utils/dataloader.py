@@ -25,7 +25,7 @@ class FedUnlDataLoader:
         self.end_idx = self.word2id["__end__"]
 
         # build edger dataset
-        if preload_path is not None and os.path.isfile(os.path.join(preload_path, ".built")):
+        if preload_path is not None and os.path.isfile(os.path.join(preload_path, f"client_{self.client_idx}_all_data.pkl")):
             client_all_data = pkl.load(open(os.path.join(preload_path, f"client_{self.client_idx}_all_data.pkl"), "rb"))
             (self.item_edger, self.entity_edger, self.word_edger, self.train_dataset, self.valid_dataset, self.test_dataset) = client_all_data
         else:
@@ -42,9 +42,6 @@ class FedUnlDataLoader:
                     (self.item_edger, self.entity_edger, self.word_edger, self.train_dataset, self.valid_dataset, self.test_dataset),
                     open(os.path.join(preload_path, f"client_{self.client_idx}_all_data.pkl"), "wb")
                 )
-
-                with open(os.path.join(preload_path, ".built"), "w", encoding="utf-8") as built:
-                    built.writelines("Built.")
 
         return
 
