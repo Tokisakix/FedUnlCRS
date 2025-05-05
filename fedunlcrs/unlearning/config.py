@@ -17,9 +17,16 @@ class FedUnlConfig:
 
         self.ablation_layer = args["ablation_layer"]
 
-        self.n_client_per_proc = args["n_client_per_proc"]
-        self.n_proc = args["n_proc"]
         self.n_client = args["n_client"]
+        self.client_config_table = {
+            1: (1, 1),
+            2: (2, 1),
+            4: (4, 1),
+            8: (8, 1),
+            16: (8, 2),
+            32: (8, 4),
+        }
+        self.n_proc, self.n_client_per_proc = self.client_config_table[self.n_client]
 
         self.aggregate_methon = args["aggregate_methon"]
         self.aggregate_rate = args["aggregate_rate"]
@@ -27,7 +34,7 @@ class FedUnlConfig:
         self.epochs = args["epochs"]
         self.batch_size = args["batch_size"]
         self.learning_rate = args["learning_rate"]
-        self.emb_dim = args["model_config"]["hycorec"]["emb_dim"]
+        self.emb_dim = args["emb_dim"]
 
         self.load_path = os.path.join(
             "/gz-data/save", "partition",

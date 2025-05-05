@@ -53,6 +53,8 @@ class HyCoRec(torch.nn.Module):
         self.kg_emb_dim = model_config["emb_dim"]
         self.user_emb_dim = model_config["emb_dim"]
 
+        self.ablation_layer = model_config["ablation_layer"]
+
         # pooling
         self.pooling = model_config["pooling_methon"]
         self.mha_n_heads = model_config["mha_n_heads"]
@@ -91,7 +93,9 @@ class HyCoRec(torch.nn.Module):
 
         # pooling
         if self.pooling == "Attn":
-            self.kg_attn = SelfAttentionBatch(self.kg_emb_dim, self.kg_emb_dim)
+            self.item_list_attn = SelfAttentionBatch(self.kg_emb_dim, self.kg_emb_dim)
+            self.entity_list_attn = SelfAttentionBatch(self.kg_emb_dim, self.kg_emb_dim)
+            self.word_list_attn = SelfAttentionBatch(self.kg_emb_dim, self.kg_emb_dim)
             self.kg_attn_his = SelfAttentionBatch(self.kg_emb_dim, self.kg_emb_dim)
         return
 
@@ -215,14 +219,22 @@ class HyCoRec(torch.nn.Module):
         user_repr_list = []
         for related_items, related_entities, related_words in zip(batch_related_items, batch_related_entities, batch_related_words):
             if len(related_items) >= 0 or len(related_words) >= 0:
-                if len(related_entities) == 0:
-                    user_repr = torch.zeros(self.user_emb_dim, device=self.device)
-                elif self.pooling == "Attn":
-                    user_repr = tot_entity_embedding[related_entities]
-                    user_repr = self.kg_attn(user_repr)
-                elif self.pooling == "Mean":
-                    user_repr = tot_entity_embedding[related_entities]
-                    user_repr = torch.mean(user_repr, dim=0)
+                def get_embedding(related_list, tot_embedding, kg_attn, is_ablation):
+                    if len(related_list) == 0:
+                        user_repr = torch.zeros(self.user_emb_dim, device=self.device)
+                    if is_ablation:
+                        user_repr = torch.randn(self.user_emb_dim, device=self.device) / 5.0
+                    elif self.pooling == "Attn":
+                        user_repr = tot_embedding[related_list]
+                        user_repr = kg_attn(user_repr)
+                    elif self.pooling == "Mean":
+                        user_repr = tot_embedding[related_list]
+                        user_repr = torch.mean(user_repr, dim=0)
+                    return user_repr
+                item_repr = get_embedding(related_items, tot_item_embedding, self.item_list_attn, self.ablation_layer == "item")
+                entity_repr = get_embedding(related_entities, tot_entity_embedding, self.entity_list_attn, self.ablation_layer == "entity")
+                word_repr = get_embedding(related_words, tot_word_embedding, self.word_list_attn, self.ablation_layer == "word")
+                user_repr = (item_repr + entity_repr + word_repr) / 3.0
             else:
                 user_repr = self.encode_user_repr(related_items, related_entities, related_words, tot_item_embedding, tot_entity_embedding, tot_word_embedding)
             user_repr_list.append(user_repr)

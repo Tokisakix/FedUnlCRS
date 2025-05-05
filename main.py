@@ -32,8 +32,7 @@ if __name__ == "__main__":
             config["dataset_name"] = args.dataset
         if args.methon:
             config["unlearning_sample_methon"] = args.methon
-        if args.ablation:
-            config["ablation_layer"] = args.ablation
+        config["model_config"]["hycorec"]["ablation_layer"] = args.ablation
         if args.n_client:
             config["n_client"] = args.n_client
         if args.embedding_dim:

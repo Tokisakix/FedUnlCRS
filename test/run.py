@@ -1,3 +1,4 @@
+import argparse
 import subprocess
 
 PYTHON = R"/usr/local/anaconda3/bin/python"
@@ -42,7 +43,54 @@ def run_all_model():
             run_cmd(command)
     return
 
+def run_ablation():
+    model = "hycorec"
+    for dataset in DATASETS:
+        for ablation in ABLATION_LAYERS:
+            command = f"{PYTHON} main.py --config {UNLEARNING_CONFIG} --model {model} --dataset {dataset} --ablation {ablation}"
+            print("[SCRIPT]", command)
+            run_cmd(command)
+
+def run_n_client():
+    model = "hycorec"
+    for dataset in DATASETS:
+        for n_client in N_CLIENTS:
+            command = f"{PYTHON} main.py --config {UNLEARNING_CONFIG} --model {model} --dataset {dataset} --n_client {n_client}"
+            print("[SCRIPT]", command)
+            run_cmd(command)
+
+def run_embedding_dim():
+    model = "hycorec"
+    for dataset in DATASETS:
+        for embedding_dim in EMBEDDING_DIM:
+            command = f"{PYTHON} main.py --config {UNLEARNING_CONFIG} --model {model} --dataset {dataset} --embedding_dim {embedding_dim}"
+            print("[SCRIPT]", command)
+            run_cmd(command)
+
+def run_aggregate_rate():
+    model = "hycorec"
+    for dataset in DATASETS:
+        for aggregate_rate in AGGREGATE_RATE:
+            command = f"{PYTHON} main.py --config {UNLEARNING_CONFIG} --model {model} --dataset {dataset} --aggregate_rate {aggregate_rate}"
+            print("[SCRIPT]", command)
+            run_cmd(command)
+    return
+
 if __name__ == "__main__":
-    # run_all_partition()
-    run_all_model()
+    args = argparse.ArgumentParser()
+    args.add_argument("--task", type=int)
+    args = args.parse_args()
+
+    if args.task == 0:
+        run_all_partition()
+    elif args.task == 1:
+        run_all_model()
+    elif args.task == 2:
+        run_ablation()
+    elif args.task == 3:
+        run_n_client()
+    elif args.task == 4:
+        run_embedding_dim()
+    elif args.task == 5:
+        run_aggregate_rate()
     exit(0)
