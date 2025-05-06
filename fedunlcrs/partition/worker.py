@@ -11,7 +11,7 @@ class PartitionWorker:
     def __init__(self, config:PartitionConfig) -> None:
         os.makedirs(config.save_dir, exist_ok=True)
         self.config = config
-        self.dataloader = FedUnlDataLoader(self.config.dataset_name, 1, 0, None, None, None)
+        self.dataloader = FedUnlDataLoader(self.config.dataset_name, 1, 0, None, None, None, None)
         self.raw_train_dataset = self.dataloader.raw_train_dataset
 
         self.item_popularity = {}

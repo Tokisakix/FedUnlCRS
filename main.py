@@ -14,6 +14,7 @@ if __name__ == "__main__":
     args.add_argument("--n_client", type=int, help="n client", default=None)
     args.add_argument("--embedding_dim", type=int, help="embedding dim", default=None)
     args.add_argument("--aggregate_rate", type=float, help="aggregate rate", default=None)
+    args.add_argument("--unlearning", type=bool, help="unlearning mode", default=None)
     args = args.parse_args()
 
     config = yaml.safe_load(open(args.config, "r", encoding="utf-8"))
@@ -32,6 +33,7 @@ if __name__ == "__main__":
             config["dataset_name"] = args.dataset
         if args.methon:
             config["unlearning_sample_methon"] = args.methon
+        config["ablation_layer"] = args.ablation
         config["model_config"]["hycorec"]["ablation_layer"] = args.ablation
         if args.n_client:
             config["n_client"] = args.n_client
@@ -39,6 +41,8 @@ if __name__ == "__main__":
             config["emb_dim"] = args.embedding_dim
         if args.aggregate_rate:
             config["aggregate_rate"] = args.aggregate_rate
+        if args.unlearning:
+            config["unlearning"] = args.unlearning
         config = FedUnlConfig(config)
         FedUnlWorker(config)
 

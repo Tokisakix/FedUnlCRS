@@ -57,11 +57,11 @@ class FedUnlWorker:
             (rank + 1) * self.config.n_client_per_proc,
         ))
 
+        self.sampler = GraphUnlSampler(self.config)
         self.build_loader()
         self.build_model()
 
         if self.rank == 0:
-            self.sampler = GraphUnlSampler(self.config)
             os.makedirs(self.config.save_path, exist_ok=True)
             os.makedirs(self.config.evaluate_path, exist_ok=True)
 
@@ -101,6 +101,7 @@ class FedUnlWorker:
             if self.config.n_client > 1:
                 self.aggregate()
             self.unlearning()
+            self.evaluate(mode="valid")
 
         self.evaluate(mode="test")
         if self.config.n_client > 1:
@@ -115,12 +116,20 @@ class FedUnlWorker:
     def build_loader(self) -> None:
         self.dataloaders : List[FedUnlDataLoader] = []
         for client_id in self.client_ids:
+            client_mask = json.load(open(os.path.join(self.config.load_path, f"client_{client_id}_mask.json"), "r", encoding="utf-8"))
+            unlearning_mask = {
+                "item_mask": self.sampler.top_item_ids if self.config.unlearning else [],
+                "entity_mask": self.sampler.top_entity_ids if self.config.unlearning else [],
+                "word_mask": self.sampler.top_word_ids if self.config.unlearning else [],
+            }
+
             self.dataloaders.append(
                 FedUnlDataLoader(
                     self.config.dataset_name,
                     self.config.batch_size,
                     client_id,
-                    json.load(open(os.path.join(self.config.load_path, f"client_{client_id}_mask.json"), "r", encoding="utf-8")),
+                    client_mask,
+                    unlearning_mask,
                     self.config.partition_mode,
                     self.config.load_path,
                 )
@@ -344,7 +353,7 @@ class FedUnlWorker:
             result_entry = {
                 "epoch": self.epoch,
                 "mode": mode,
-                "unlearning": unlearning,
+                "unlearning": self.config.unlearning,
                 "rec_task": rec_task,
                 "con_task": con_task,
                 "fairness_aware": fairness_aware

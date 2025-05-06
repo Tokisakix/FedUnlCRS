@@ -76,6 +76,14 @@ def run_aggregate_rate():
             run_cmd(command)
     return
 
+def run_unlearning():
+    model = "hycorec"
+    for dataset in DATASETS:
+        command = f"{PYTHON} main.py --config {UNLEARNING_CONFIG} --model {model} --dataset {dataset} --unlearning True"
+        print("[SCRIPT]", command)
+        run_cmd(command)
+    return
+
 if __name__ == "__main__":
     args = argparse.ArgumentParser()
     args.add_argument("--task", type=int)
@@ -93,4 +101,6 @@ if __name__ == "__main__":
         run_embedding_dim()
     elif args.task == 5:
         run_aggregate_rate()
+    elif args.task == 6:
+        run_unlearning()
     exit(0)

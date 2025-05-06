@@ -1,11 +1,13 @@
 task: unlearning
 
-model_name: hycorec # mlp hycorec kbrd bert gru4rec kgsf ntrd redial sasrec textcnn tgredial mhim
+model_name: mlp # mlp hycorec kbrd bert gru4rec kgsf ntrd redial sasrec textcnn tgredial mhim
 dataset_name: opendialkg # hredial htgredial opendialkg durecdial
 
 partition_methon: random # random
 partition_mode: conv # user conv item entity word
 
+topk: 256
+unlearning: True
 unlearning_layer:
   - [user, 8]
   - [conv, 8]
@@ -30,7 +32,7 @@ epochs: 10
 batch_size: 32
 learning_rate: 0.01
 
-topk: 8
+emb_dim: 256
 
 model_config:
   mlp:
